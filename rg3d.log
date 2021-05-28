@@ -1,0 +1,358 @@
+[INFO]: GL texture 1 was created!
+[INFO]: GL texture 2 was created!
+[INFO]: Shader FlatShader_VertexShader compiled!
+
+[INFO]: Shader FlatShader_FragmentShader compiled!
+
+[INFO]: Shader FlatShader linked!
+
+[INFO]: Shader SsaoShader_VertexShader compiled!
+
+[INFO]: Shader SsaoShader_FragmentShader compiled!
+
+[INFO]: Shader SsaoShader linked!
+
+[INFO]: GL texture 3 was created!
+[INFO]: Shader DeferredLightShader_VertexShader compiled!
+
+[INFO]: Shader DeferredLightShader_FragmentShader compiled!
+
+[INFO]: Shader DeferredLightShader linked!
+
+[INFO]: Shader DeferredLightShader_VertexShader compiled!
+
+[INFO]: Shader DeferredLightShader_FragmentShader compiled!
+
+[INFO]: Shader DeferredLightShader linked!
+
+[INFO]: Shader DeferredLightShader_VertexShader compiled!
+
+[INFO]: Shader DeferredLightShader_FragmentShader compiled!
+
+[INFO]: Shader DeferredLightShader linked!
+
+[INFO]: Shader AmbientLightShader_VertexShader compiled!
+
+[INFO]: Shader AmbientLightShader_FragmentShader compiled!
+
+[INFO]: Shader AmbientLightShader linked!
+
+[INFO]: Shader FlatShader_VertexShader compiled!
+
+[INFO]: Shader FlatShader_FragmentShader compiled!
+
+[INFO]: Shader FlatShader linked!
+
+[INFO]: GL texture 4 was created!
+[INFO]: GL texture 5 was created!
+[INFO]: GL texture 6 was created!
+[INFO]: Shader SpotShadowMapShader_VertexShader compiled!
+
+[INFO]: Shader SpotShadowMapShader_FragmentShader compiled!
+
+[INFO]: Shader SpotShadowMapShader linked!
+
+[INFO]: GL texture 7 was created!
+[INFO]: GL texture 8 was created!
+[INFO]: GL texture 9 was created!
+[INFO]: GL texture 10 was created!
+[INFO]: GL texture 11 was created!
+[INFO]: GL texture 12 was created!
+[INFO]: Shader PointShadowMapShader_VertexShader compiled!
+
+[INFO]: Shader PointShadowMapShader_FragmentShader compiled!
+
+[INFO]: Shader PointShadowMapShader linked!
+
+[INFO]: Shader SpotVolumetricLight_VertexShader compiled!
+
+[INFO]: Shader SpotVolumetricLight_FragmentShader compiled!
+
+[INFO]: Shader SpotVolumetricLight linked!
+
+[INFO]: Shader PointVolumetricLight_VertexShader compiled!
+
+[INFO]: Shader PointVolumetricLight_FragmentShader compiled!
+
+[INFO]: Shader PointVolumetricLight linked!
+
+[INFO]: Shader FlatShader_VertexShader compiled!
+
+[INFO]: Shader FlatShader_FragmentShader compiled!
+
+[INFO]: Shader FlatShader linked!
+
+[INFO]: Shader FlatShader_VertexShader compiled!
+
+[INFO]: Shader FlatShader_FragmentShader compiled!
+
+[INFO]: Shader FlatShader linked!
+
+[INFO]: Shader FlatShader_VertexShader compiled!
+
+[INFO]: Shader FlatShader_FragmentShader compiled!
+
+[INFO]: Shader FlatShader linked!
+
+[INFO]: GL texture 13 was created!
+[INFO]: GL texture 14 was created!
+[INFO]: GL texture 15 was created!
+[INFO]: GL texture 16 was created!
+[INFO]: GL texture 17 was created!
+[INFO]: Shader UIShader_VertexShader compiled!
+
+[INFO]: Shader UIShader_FragmentShader compiled!
+
+[INFO]: Shader UIShader linked!
+
+[INFO]: Shader ParticleSystemShader_VertexShader compiled!
+
+[INFO]: Shader ParticleSystemShader_FragmentShader compiled!
+
+[INFO]: Shader ParticleSystemShader linked!
+
+[INFO]: Shader DebugShader_VertexShader compiled!
+
+[INFO]: Shader DebugShader_FragmentShader compiled!
+
+[INFO]: Shader DebugShader linked!
+
+[INFO]: Shader ForwardShader_VertexShader compiled!
+
+[INFO]: Shader ForwardShader_FragmentShader compiled!
+
+[INFO]: Shader ForwardShader linked!
+
+[INFO]: Shader FXAAShader_VertexShader compiled!
+
+[INFO]: Shader FXAAShader_FragmentShader compiled!
+
+[INFO]: Shader FXAAShader linked!
+
+[INFO]: Starting resolve...
+[INFO]: Texture "textures/Block.png" is loaded in 436.7µs!
+[INFO]: Resolving graph...
+[INFO]: Original handles resolved!
+[INFO]: Checking integrity...
+[INFO]: Integrity restored for 0 instances! 0 new nodes were added!
+[INFO]: Graph resolved successfully!
+[INFO]: Resolving animations...
+[INFO]: Animations resolved successfully!
+[INFO]: Resolve succeeded!
+[INFO]: Model "data/levels/block_scene.rgs" is loaded!
+[INFO]: Resource data/levels/block_scene.rgs was successfully embedded into physics world!
+[INFO]: Trying to load "data/models/shooting.fbx"
+[INFO]: Texture "textures/floor.jpg" is loaded in 27.1465ms!
+[ERROR]: Unable to load texture "data/textures/gun_dDo_n.tga"! Reason Io(Os { code: 2, kind: NotFound, message: "The system cannot find the file specified." })
+[ERROR]: Unable to load texture "data/textures/soldier_dDo_n.tga"! Reason Io(Os { code: 2, kind: NotFound, message: "The system cannot find the file specified." })
+[INFO]: Texture "data/textures/gun_dDo_d.tga" is loaded in 7.1598ms!
+[INFO]: FBX "data/models/shooting.fbx" loaded in 115 ms
+	- Parsing - 94 ms
+	- DOM Prepare - 3 ms
+	- Conversion - 17 ms
+[INFO]: Model "data/models/shooting.fbx" is loaded!
+[INFO]: Resource data/models/shooting.fbx was successfully embedded into physics world!
+[INFO]: Resource data/models/shooting.fbx was successfully embedded into physics world!
+[INFO]: Texture "data/textures/soldier_dDo_d.tga" is loaded in 27.9522ms!
+[INFO]: Texture "data/textures/skybox/back.jpg" is loaded in 25.3888ms!
+[INFO]: Texture "data/textures/skybox/up.jpg" is loaded in 26.647ms!
+[INFO]: Texture "data/textures/skybox/left.jpg" is loaded in 30.2918ms!
+[INFO]: Texture "data/textures/skybox/down.jpg" is loaded in 31.2155ms!
+[INFO]: Texture "data/textures/skybox/right.jpg" is loaded in 32.3648ms!
+[INFO]: Texture "data/textures/skybox/front.jpg" is loaded in 32.4047ms!
+[INFO]: Resource data/models/shooting.fbx was successfully embedded into physics world!
+[INFO]: Resource data/models/shooting.fbx was successfully embedded into physics world!
+[INFO]: GL texture 18 was created!
+[INFO]: GL texture 19 was created!
+[INFO]: GL texture 20 was created!
+[INFO]: GL texture 21 was created!
+[INFO]: GL texture 22 was created!
+[INFO]: GL texture 23 was created!
+[INFO]: GL texture 24 was created!
+[INFO]: GL texture 25 was created!
+[INFO]: GL texture 26 was created!
+[INFO]: Shader GBufferInstancedShader_VertexShader compiled!
+
+[INFO]: Shader GBufferInstancedShader_FragmentShader compiled!
+
+[INFO]: Shader GBufferInstancedShader linked!
+
+[INFO]: Shader GBufferShader_VertexShader compiled!
+
+[INFO]: Shader GBufferShader_FragmentShader compiled!
+
+[INFO]: Shader GBufferShader linked!
+
+[INFO]: GL texture 27 was created!
+[INFO]: GL texture 28 was created!
+[INFO]: GL texture 29 was created!
+[INFO]: GL texture 30 was created!
+[INFO]: GL texture 31 was created!
+[INFO]: GL texture 32 was created!
+[INFO]: GL texture 33 was created!
+[INFO]: GL geometry buffer was destroyed - VAO: 12!
+[INFO]: GL geometry buffer was destroyed - VAO: 13!
+[INFO]: GL geometry buffer was destroyed - VAO: 14!
+[INFO]: GL geometry buffer was destroyed - VAO: 15!
+[INFO]: GL geometry buffer was destroyed - VAO: 16!
+[INFO]: GL geometry buffer was destroyed - VAO: 18!
+[INFO]: GL geometry buffer was destroyed - VAO: 19!
+[INFO]: GL geometry buffer was destroyed - VAO: 20!
+[INFO]: GL geometry buffer was destroyed - VAO: 21!
+[INFO]: GL geometry buffer was destroyed - VAO: 23!
+[INFO]: GL geometry buffer was destroyed - VAO: 24!
+[INFO]: GL geometry buffer was destroyed - VAO: 22!
+[INFO]: GL geometry buffer was destroyed - VAO: 26!
+[INFO]: GL geometry buffer was destroyed - VAO: 27!
+[INFO]: GL geometry buffer was destroyed - VAO: 17!
+[INFO]: GL geometry buffer was destroyed - VAO: 28!
+[INFO]: GL geometry buffer was destroyed - VAO: 25!
+[INFO]: GL geometry buffer was destroyed - VAO: 29!
+[INFO]: GL geometry buffer was destroyed - VAO: 30!
+[INFO]: GL geometry buffer was destroyed - VAO: 31!
+[INFO]: GL geometry buffer was destroyed - VAO: 40!
+[INFO]: GL geometry buffer was destroyed - VAO: 13!
+[INFO]: GL geometry buffer was destroyed - VAO: 38!
+[INFO]: GL geometry buffer was destroyed - VAO: 35!
+[INFO]: GL geometry buffer was destroyed - VAO: 43!
+[INFO]: GL geometry buffer was destroyed - VAO: 44!
+[INFO]: GL geometry buffer was destroyed - VAO: 37!
+[INFO]: GL geometry buffer was destroyed - VAO: 46!
+[INFO]: GL geometry buffer was destroyed - VAO: 17!
+[INFO]: GL geometry buffer was destroyed - VAO: 12!
+[INFO]: GL geometry buffer was destroyed - VAO: 32!
+[INFO]: GL geometry buffer was destroyed - VAO: 42!
+[INFO]: GL geometry buffer was destroyed - VAO: 14!
+[INFO]: GL geometry buffer was destroyed - VAO: 20!
+[INFO]: GL geometry buffer was destroyed - VAO: 45!
+[INFO]: GL geometry buffer was destroyed - VAO: 18!
+[INFO]: GL geometry buffer was destroyed - VAO: 34!
+[INFO]: GL geometry buffer was destroyed - VAO: 33!
+[INFO]: GL geometry buffer was destroyed - VAO: 20!
+[INFO]: GL geometry buffer was destroyed - VAO: 22!
+[INFO]: GL geometry buffer was destroyed - VAO: 21!
+[INFO]: GL geometry buffer was destroyed - VAO: 16!
+[INFO]: GL geometry buffer was destroyed - VAO: 19!
+[INFO]: GL geometry buffer was destroyed - VAO: 23!
+[INFO]: GL geometry buffer was destroyed - VAO: 14!
+[INFO]: GL geometry buffer was destroyed - VAO: 41!
+[INFO]: GL geometry buffer was destroyed - VAO: 20!
+[INFO]: GL geometry buffer was destroyed - VAO: 36!
+[INFO]: GL geometry buffer was destroyed - VAO: 25!
+[INFO]: GL geometry buffer was destroyed - VAO: 27!
+[INFO]: GL geometry buffer was destroyed - VAO: 15!
+[INFO]: GL geometry buffer was destroyed - VAO: 12!
+[INFO]: GL geometry buffer was destroyed - VAO: 13!
+[INFO]: GL geometry buffer was destroyed - VAO: 39!
+[INFO]: GL geometry buffer was destroyed - VAO: 15!
+[INFO]: GL geometry buffer was destroyed - VAO: 18!
+[INFO]: GL geometry buffer was destroyed - VAO: 13!
+[INFO]: GL geometry buffer was destroyed - VAO: 20!
+[INFO]: GL geometry buffer was destroyed - VAO: 25!
+[INFO]: GL geometry buffer was destroyed - VAO: 24!
+[INFO]: GL geometry buffer was destroyed - VAO: 27!
+[INFO]: GL geometry buffer was destroyed - VAO: 15!
+[INFO]: GL geometry buffer was destroyed - VAO: 16!
+[INFO]: GL geometry buffer was destroyed - VAO: 22!
+[INFO]: GL geometry buffer was destroyed - VAO: 29!
+[INFO]: GL geometry buffer was destroyed - VAO: 21!
+[INFO]: GL geometry buffer was destroyed - VAO: 31!
+[INFO]: GL geometry buffer was destroyed - VAO: 26!
+[INFO]: GL geometry buffer was destroyed - VAO: 17!
+[INFO]: GL geometry buffer was destroyed - VAO: 19!
+[INFO]: GL geometry buffer was destroyed - VAO: 14!
+[INFO]: GL geometry buffer was destroyed - VAO: 28!
+[INFO]: GL geometry buffer was destroyed - VAO: 12!
+[INFO]: GL geometry buffer was destroyed - VAO: 23!
+[INFO]: GL geometry buffer was destroyed - VAO: 18!
+[INFO]: GL geometry buffer was destroyed - VAO: 30!
+[INFO]: GL geometry buffer was destroyed - VAO: 13!
+[INFO]: GL geometry buffer was destroyed - VAO: 12!
+[INFO]: GL geometry buffer was destroyed - VAO: 15!
+[INFO]: GL geometry buffer was destroyed - VAO: 17!
+[INFO]: GL geometry buffer was destroyed - VAO: 14!
+[INFO]: GL geometry buffer was destroyed - VAO: 21!
+[INFO]: GL geometry buffer was destroyed - VAO: 22!
+[INFO]: GL geometry buffer was destroyed - VAO: 24!
+[INFO]: GL geometry buffer was destroyed - VAO: 18!
+[INFO]: GL geometry buffer was destroyed - VAO: 12!
+[INFO]: GL geometry buffer was destroyed - VAO: 14!
+[INFO]: GL geometry buffer was destroyed - VAO: 27!
+[INFO]: GL geometry buffer was destroyed - VAO: 17!
+[INFO]: GL geometry buffer was destroyed - VAO: 29!
+[INFO]: GL geometry buffer was destroyed - VAO: 28!
+[INFO]: GL geometry buffer was destroyed - VAO: 26!
+[INFO]: GL geometry buffer was destroyed - VAO: 30!
+[INFO]: GL geometry buffer was destroyed - VAO: 15!
+[INFO]: GL geometry buffer was destroyed - VAO: 23!
+[INFO]: GL geometry buffer was destroyed - VAO: 22!
+[INFO]: GL geometry buffer was destroyed - VAO: 25!
+[INFO]: GL geometry buffer was destroyed - VAO: 13!
+[INFO]: GL geometry buffer was destroyed - VAO: 18!
+[INFO]: GL geometry buffer was destroyed - VAO: 15!
+[INFO]: GL geometry buffer was destroyed - VAO: 19!
+[INFO]: GL geometry buffer was destroyed - VAO: 26!
+[INFO]: GL geometry buffer was destroyed - VAO: 14!
+[INFO]: GL texture 2 was destroyed!
+[INFO]: GL texture 1 was destroyed!
+[INFO]: GL texture 3 was destroyed!
+[INFO]: GL texture 4 was destroyed!
+[INFO]: GL texture 5 was destroyed!
+[INFO]: GL texture 6 was destroyed!
+[INFO]: GL texture 7 was destroyed!
+[INFO]: GL texture 8 was destroyed!
+[INFO]: GL texture 9 was destroyed!
+[INFO]: GL texture 10 was destroyed!
+[INFO]: GL texture 11 was destroyed!
+[INFO]: GL texture 12 was destroyed!
+[INFO]: GL geometry buffer was destroyed - VAO: 3!
+[INFO]: GL texture 13 was destroyed!
+[INFO]: GL texture 15 was destroyed!
+[INFO]: GL geometry buffer was destroyed - VAO: 1!
+[INFO]: GL geometry buffer was destroyed - VAO: 2!
+[INFO]: GL geometry buffer was destroyed - VAO: 4!
+[INFO]: GL texture 23 was destroyed!
+[INFO]: GL texture 24 was destroyed!
+[INFO]: GL texture 25 was destroyed!
+[INFO]: GL texture 22 was destroyed!
+[INFO]: GL texture 26 was destroyed!
+[INFO]: GL texture 27 was destroyed!
+[INFO]: GL texture 31 was destroyed!
+[INFO]: GL texture 32 was destroyed!
+[INFO]: GL texture 33 was destroyed!
+[INFO]: GL texture 30 was destroyed!
+[INFO]: GL texture 28 was destroyed!
+[INFO]: GL texture 29 was destroyed!
+[INFO]: GL geometry buffer was destroyed - VAO: 22!
+[INFO]: GL geometry buffer was destroyed - VAO: 21!
+[INFO]: GL geometry buffer was destroyed - VAO: 13!
+[INFO]: GL geometry buffer was destroyed - VAO: 6!
+[INFO]: GL geometry buffer was destroyed - VAO: 14!
+[INFO]: GL geometry buffer was destroyed - VAO: 10!
+[INFO]: GL geometry buffer was destroyed - VAO: 9!
+[INFO]: GL geometry buffer was destroyed - VAO: 24!
+[INFO]: GL geometry buffer was destroyed - VAO: 30!
+[INFO]: GL geometry buffer was destroyed - VAO: 31!
+[INFO]: GL geometry buffer was destroyed - VAO: 15!
+[INFO]: GL geometry buffer was destroyed - VAO: 29!
+[INFO]: GL geometry buffer was destroyed - VAO: 18!
+[INFO]: GL geometry buffer was destroyed - VAO: 20!
+[INFO]: GL geometry buffer was destroyed - VAO: 17!
+[INFO]: GL geometry buffer was destroyed - VAO: 11!
+[INFO]: GL geometry buffer was destroyed - VAO: 8!
+[INFO]: GL geometry buffer was destroyed - VAO: 12!
+[INFO]: GL geometry buffer was destroyed - VAO: 16!
+[INFO]: GL geometry buffer was destroyed - VAO: 19!
+[INFO]: GL geometry buffer was destroyed - VAO: 7!
+[INFO]: GL geometry buffer was destroyed - VAO: 25!
+[INFO]: GL geometry buffer was destroyed - VAO: 5!
+[INFO]: GL geometry buffer was destroyed - VAO: 27!
+[INFO]: GL geometry buffer was destroyed - VAO: 28!
+[INFO]: GL geometry buffer was destroyed - VAO: 23!
+[INFO]: GL texture 20 was destroyed!
+[INFO]: GL texture 21 was destroyed!
+[INFO]: GL texture 18 was destroyed!
+[INFO]: GL texture 19 was destroyed!
+[INFO]: GL texture 16 was destroyed!
+[INFO]: GL texture 17 was destroyed!
+[INFO]: GL texture 14 was destroyed!
