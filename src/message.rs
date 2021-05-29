@@ -1,5 +1,8 @@
-use rg3d::core::algebra::{Translation3};
+use rg3d::core::algebra::Translation3;
+use serde::{Deserialize, Serialize};
 
+// TODO: Create separate PacketMessage that can hold these
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Message {
     ShootWeapon {
         index: u32,
@@ -21,7 +24,7 @@ pub enum Message {
         index: u32,
         active: bool,
     },
-        MoveUp {
+    MoveUp {
         index: u32,
         active: bool,
     },
@@ -31,8 +34,9 @@ pub enum Message {
         pitch_delta: f32,
     },
     // Used for synchronizing client
-    UpdatePosition {
-        index: u32,
-        position: Translation3<f32>,
-    },
+    // UpdatePosition {
+    //     index: u32,
+    //     position: Translation3<f32>,
+    // },
+    HeartBeat,
 }
