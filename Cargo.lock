@@ -137,6 +137,7 @@ name = "breakfloor"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "crossbeam-channel",
  "laminar",
  "rg3d",
  "serde",

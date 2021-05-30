@@ -1,11 +1,9 @@
-use std::{
-    path::Path,
-    sync::{Arc, RwLock},
-};
-
+use bincode::serialize;
+use crossbeam_channel::Sender;
+use laminar::Packet;
 use rg3d::{
     core::{
-        algebra::{Transform3, UnitQuaternion, Vector3},
+        algebra::{Isometry, Transform3, Translation3, UnitQuaternion, Vector3},
         color::Color,
         color_gradient::{ColorGradient, GradientPoint},
         math::{ray::Ray, Matrix3Ext, Matrix4Ext, Vector3Ext},
@@ -13,7 +11,11 @@ use rg3d::{
         pool::Handle,
     },
     engine::resource_manager::ResourceManager,
-    physics::{dynamics::RigidBodyBuilder, geometry::ColliderBuilder},
+    event::ElementState,
+    physics::{
+        dynamics::{RigidBody, RigidBodyBuilder},
+        geometry::ColliderBuilder,
+    },
     renderer::surface::{SurfaceBuilder, SurfaceSharedData},
     resource::texture::TextureWrapMode,
     scene::{
@@ -28,8 +30,16 @@ use rg3d::{
         ColliderHandle, RigidBodyHandle, Scene,
     },
 };
+use std::{
+    net::SocketAddr,
+    path::Path,
+    sync::{Arc, RwLock},
+};
 
-use crate::GameEngine;
+use crate::{
+    message::{ActionMessage, NetworkMessage},
+    GameEngine,
+};
 
 const MOVEMENT_SPEED: f32 = 1.5;
 const GRAVITY_SCALE: f32 = 0.5;
@@ -46,6 +56,8 @@ pub struct PlayerController {
     pub pitch: f32,
     pub yaw: f32,
     pub shoot: bool,
+    pub new_state: Option<PlayerState>,
+    pub previous_state: PlayerState,
 }
 
 pub struct Player {
@@ -60,6 +72,15 @@ pub struct Player {
     recoil_target_offset: Vector3<f32>,
     pub index: u32,
     pub controller: PlayerController,
+}
+
+#[derive(Default)]
+
+pub struct PlayerState {
+    pub position: Vector3<f32>,
+    pub velocity: f32,
+    pub yaw: f32,
+    pub pitch: f32,
 }
 
 impl Player {
@@ -165,7 +186,14 @@ impl Player {
         }
     }
 
-    pub fn update(&mut self, dt: f32, scene: &mut Scene, resource_manager: ResourceManager) {
+    pub fn update(
+        &mut self,
+        dt: f32,
+        scene: &mut Scene,
+        resource_manager: ResourceManager,
+        packet_sender: &Sender<Packet>,
+        client_address: &mut String,
+    ) {
         self.shot_timer = (self.shot_timer - dt).max(0.0);
 
         // `follow` method defined in Vector3Ext trait and it just increases or
@@ -234,6 +262,8 @@ impl Player {
 
         body.set_position(position, true);
 
+        self.interpolate_state(body, &mut velocity);
+
         // Set pitch for the camera. These lines responsible for up-down camera rotation.
 
         scene.graph[self.camera].local_transform_mut().set_rotation(
@@ -245,15 +275,55 @@ impl Player {
         );
 
         if self.controller.shoot {
-            self.shoot_weapon(scene, resource_manager);
+            self.shoot_weapon(scene, resource_manager, packet_sender, client_address);
         }
     }
 
-    fn can_shoot(&self) -> bool {
+    fn interpolate_state(&mut self, body: &mut RigidBody, velocity: &mut Vector3<f32>) {
+        if let Some(new_state) = &self.controller.new_state {
+            let distance = new_state
+                .position
+                .sqr_distance(&self.controller.previous_state.position);
+
+            let error = (distance / MOVEMENT_SPEED).clamp(0.0, 1.0);
+
+            if error > 0.0 {
+                let mut pos = *body.position();
+                // TODO: WHY IS THIS NOT UPDATING
+                pos = pos.lerp_slerp(
+                    &Isometry::from_parts(
+                        Translation3::new(
+                            new_state.position.x,
+                            new_state.position.y,
+                            new_state.position.z,
+                        ),
+                        pos.rotation,
+                    ),
+                    error,
+                );
+                body.set_position(pos, true);
+                self.controller.previous_state.position = pos.translation.vector;
+                self.controller.new_state = None;
+
+                println!(
+                    "interpolated new position based on error of {}: {:?}",
+                    error, pos
+                );
+            }
+        }
+    }
+
+    pub fn can_shoot(&self) -> bool {
         self.shot_timer <= 0.0
     }
 
-    fn shoot_weapon(&mut self, scene: &mut Scene, resource_manager: ResourceManager) {
+    fn shoot_weapon(
+        &mut self,
+        scene: &mut Scene,
+        resource_manager: ResourceManager,
+        packet_sender: &Sender<Packet>,
+        client_address: &mut String,
+    ) {
         if self.can_shoot() {
             self.shot_timer = 0.1;
 
@@ -282,6 +352,8 @@ impl Player {
             let trail_length = if let Some(intersection) =
                 intersections.iter().find(|i| i.collider != self.collider)
             {
+                // TODO: Move this to a network module that can handle getting the address and sending etc
+
                 let collider = scene
                     .physics
                     .colliders
@@ -294,25 +366,54 @@ impl Player {
                     let node = &mut scene.graph[node_handle];
                     let tag = node.tag().clone();
 
+                    let mut destroy_block = false;
+
+                    // TODO: Should probably use collider groups instead of tag?
                     match tag {
                         "wall" => (),
                         "player" => (),
-                        "1" => node.set_tag("0".to_string()),
                         "0" => {
-                            scene.remove_node(node_handle);
-                            scene.physics.remove_body(body.into());
+                            destroy_block = true;
                         }
-                        _ => node.set_tag("0".to_string()),
+                        _ => {
+                            if cfg!(feature = "server") {
+                                node.set_tag("0".to_string())
+                            }
+                        }
+                    }
+
+                    if destroy_block {
+                        if let Ok(client_addr) = client_address.parse::<SocketAddr>() {
+                            let message = NetworkMessage::Action {
+                                index: node_handle.index(), // TODO: Probably need a different kind of message for GameMessage and PlayerMessage?
+                                action: ActionMessage::DestroyBlock {
+                                    index: node_handle.index(),
+                                },
+                            };
+
+                            println!("sent destroyed block message");
+
+                            packet_sender
+                                .send(Packet::reliable_ordered(
+                                    client_addr,
+                                    serialize(&message).unwrap(),
+                                    None,
+                                ))
+                                .unwrap();
+                        }
+
+                        scene.remove_node(node_handle);
+                        scene.physics.remove_body(body.into());
                     }
                 }
 
                 // Add bullet impact effect.
-                let effect_orientation = if intersection.normal.normalize() == Vector3::y() {
-                    // Handle singularity when normal of impact point is collinear with Y axis.
-                    UnitQuaternion::from_axis_angle(&Vector3::y_axis(), 0.0)
-                } else {
-                    UnitQuaternion::face_towards(&intersection.normal, &Vector3::y())
-                };
+                // let effect_orientation = if intersection.normal.normalize() == Vector3::y() {
+                //     // Handle singularity when normal of impact point is collinear with Y axis.
+                //     UnitQuaternion::from_axis_angle(&Vector3::y_axis(), 0.0)
+                // } else {
+                //     UnitQuaternion::face_towards(&intersection.normal, &Vector3::y())
+                // };
 
                 // create_bullet_impact(
                 //     &mut scene.graph,
@@ -335,6 +436,26 @@ impl Player {
             //     .local_transform_mut()
             //     .set_rotation(original_rotation);
         }
+    }
+
+    pub fn get_vertical_velocity(&self, scene: &Scene) -> f32 {
+        let body = scene.physics.bodies.get(self.rigid_body.into()).unwrap();
+
+        body.linvel().y
+    }
+
+    pub fn get_position(&self, scene: &Scene) -> Vector3<f32> {
+        let body = scene.physics.bodies.get(self.rigid_body.into()).unwrap();
+
+        body.position().translation.vector
+    }
+
+    pub fn get_yaw(&self) -> f32 {
+        self.controller.yaw
+    }
+
+    pub fn get_pitch(&self) -> f32 {
+        self.controller.pitch
     }
 }
 
@@ -449,12 +570,9 @@ fn create_shot_trail(
     MeshBuilder::new(
         BaseBuilder::new()
             .with_local_transform(transform)
-            // Shot trail should live ~0.25 seconds, after that it will be automatically
-            // destroyed.aw
             .with_lifetime(0.05),
     )
     .with_surfaces(vec![SurfaceBuilder::new(shape)
-        // Set yellow-ish color.
         .with_color(Color::from_rgba(105, 171, 195, 150))
         .build()])
     // Do not cast shadows.

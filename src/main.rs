@@ -1,10 +1,16 @@
-pub mod level;
+mod level;
 mod message;
 mod player;
 
-use crate::{level::Level, message::Message, player::Player};
+use crate::{
+    level::Level,
+    message::{ActionMessage, NetworkMessage},
+    player::Player,
+};
 use bincode::{deserialize, serialize};
-use laminar::{ErrorKind, Packet, Socket, SocketEvent};
+use crossbeam_channel::{Receiver, Sender};
+use laminar::{Config, ErrorKind, Packet, Socket, SocketEvent};
+use player::PlayerState;
 use rg3d::{
     core::{
         algebra::{Isometry3, Translation3, UnitQuaternion, Vector3},
@@ -13,6 +19,7 @@ use rg3d::{
         math::ray::Ray,
         numeric_range::NumericRange,
         pool::{Handle, Pool},
+        profiler::print,
     },
     engine::{resource_manager::ResourceManager, Engine},
     event::{DeviceEvent, ElementState, Event, MouseButton, VirtualKeyCode, WindowEvent},
@@ -34,10 +41,18 @@ use rg3d::{
     },
     window::{Fullscreen, WindowBuilder},
 };
-use std::{fmt, net::SocketAddr, path::Path, sync::{
-        mpsc::{self, Receiver, Sender},
+use std::{
+    fmt,
+    net::SocketAddr,
+    os::windows::process,
+    path::Path,
+    sync::{
+        mpsc::{self},
         Arc, RwLock,
-    }, thread, time::{self, Instant}};
+    },
+    thread,
+    time::{self, Duration, Instant},
+};
 
 // Create our own engine type aliases. These specializations are needed, because the engine
 // provides a way to extend UI with custom nodes and messages.
@@ -78,11 +93,12 @@ fn main() {
     }
 
     // Move this to a Game module or something
-    let (action_sender, receiver) = mpsc::channel();
+
+    let (action_sender, action_receiver) = mpsc::channel();
 
     // Load level
     let mut level =
-        rg3d::futures::executor::block_on(Level::new(&mut engine, "block_scene", receiver));
+        rg3d::futures::executor::block_on(Level::new(&mut engine, "block_scene", action_receiver));
 
     let player_index: u32 = if SERVER { 1 } else { 0 };
 
@@ -102,17 +118,31 @@ fn main() {
 
     let mut socket;
 
-    // Nee
+    let config = Config {
+        heartbeat_interval: Some(Duration::from_millis(1000)),
+        ..Default::default()
+    };
+
     if SERVER {
-        socket = Socket::bind("0.0.0.0:12351").unwrap();
+        socket = Socket::bind_with_config("0.0.0.0:12351", config).unwrap();
     } else {
-        socket = Socket::bind("0.0.0.0:12352").unwrap();
+        socket = Socket::bind_with_config("0.0.0.0:12352", config).unwrap();
     }
 
-    let (packet_sender, packet_receiver) =
-        (socket.get_packet_sender(), socket.get_event_receiver());
+    let packet_sender: Sender<Packet> = socket.get_packet_sender();
+    let packet_receiver: Receiver<SocketEvent> = socket.get_event_receiver();
 
-    // let _thread = thread::spawn(move || socket.start_polling());
+    if !HEADLESS {
+        packet_sender
+            .send(Packet::reliable_ordered(
+                SERVER_ADDRESS.parse().unwrap(),
+                serialize(&NetworkMessage::Connected).unwrap(),
+                None,
+            ))
+            .unwrap();
+    }
+
+    let _thread = thread::spawn(move || socket.start_polling());
 
     // Run the event loop of the main window. which will respond to OS and window events and update
     // engine's state accordingly. Engine lets you to decide which event should be handled,
@@ -120,185 +150,25 @@ fn main() {
     let clock = time::Instant::now();
     let mut elapsed_time = 0.0;
     let mut focused = true;
+    let mut cursor_in_window = true;
 
-    let mut connected_client = String::new();
+    let mut connected_client = String::new(); // TODO: Handle multiple clients
 
     event_loop.run(move |event, _, control_flow| {
-        socket.manual_poll(clock);
+        process_network_events(
+            &mut engine,
+            &packet_receiver,
+            &packet_sender,
+            &action_sender,
+            &mut level,
+            SERVER,
+            HEADLESS,
+            &mut connected_client,
+            player_index,
+        );
 
-        // Keeping code here since there is type issue with packet sender/recievers
-        while let Ok(event) = packet_receiver.try_recv() {
-            match event {
-                SocketEvent::Packet(packet) => {
-                    if let Ok(message) = deserialize::<Message>(packet.payload()) {
-                        match message {
-                            Message::HeartBeat => {}
-                            _ => {
-                                action_sender.send(message).unwrap();
-                            }
-                        }
-
-                        // Relay any messages to clients
-                        if SERVER {
-                            let sent_from_server = packet.addr().to_string() == SERVER_ADDRESS;
-
-                            // TODO: send to all connected clients somehow
-
-                            // TODO: only send messages of certain type back to sender, many actions will have already happened locally for the client
-
-                            if sent_from_server {
-                                if let Ok(address) = connected_client.parse::<SocketAddr>() {
-                                    socket
-                                        .send(Packet::unreliable_sequenced(
-                                            address,
-                                            packet.payload().to_vec(),
-                                            None,
-                                        ))
-                                        .unwrap();
-                                }
-                            } else {
-                                socket
-                                    .send(Packet::unreliable_sequenced(
-                                        packet.addr(),
-                                        packet.payload().to_vec(),
-                                        None,
-                                    ))
-                                    .unwrap();
-                            }
-                        }
-                    }
-                }
-                SocketEvent::Connect(address) => {
-                    let address = address.to_string();
-                    if address != SERVER_ADDRESS {
-                        connected_client = address;
-                    }
-                }
-                event => println!("unhandled socket event: {:?}", event),
-            }
-        }
-
-        if !HEADLESS && focused {
-            match &event {
-                Event::WindowEvent { event, .. } => match event {
-                    WindowEvent::KeyboardInput { input, .. } => {
-                        if let Some(key_code) = input.virtual_keycode {
-                            match key_code {
-                                VirtualKeyCode::W => {
-                                    let message = Message::MoveForward {
-                                        index: player_index,
-                                        active: input.state == ElementState::Pressed,
-                                    };
-
-                                    // TODO: Send locally so you don't wait for server to move
-
-                                    socket
-                                        .send(Packet::unreliable_sequenced(
-                                            SERVER_ADDRESS.parse().unwrap(),
-                                            serialize(&message).unwrap(),
-                                            None,
-                                        ))
-                                        .unwrap();
-                                }
-                                VirtualKeyCode::S => {
-                                    let message = Message::MoveBackward {
-                                        index: player_index,
-                                        active: input.state == ElementState::Pressed,
-                                    };
-
-                                    socket
-                                        .send(Packet::unreliable_sequenced(
-                                            SERVER_ADDRESS.parse().unwrap(),
-                                            serialize(&message).unwrap(),
-                                            None,
-                                        ))
-                                        .unwrap();
-                                }
-                                VirtualKeyCode::A => {
-                                    let message = Message::MoveLeft {
-                                        index: player_index,
-                                        active: input.state == ElementState::Pressed,
-                                    };
-
-                                    socket
-                                        .send(Packet::unreliable_sequenced(
-                                            SERVER_ADDRESS.parse().unwrap(),
-                                            serialize(&message).unwrap(),
-                                            None,
-                                        ))
-                                        .unwrap();
-                                }
-                                VirtualKeyCode::D => {
-                                    let message = Message::MoveRight {
-                                        index: player_index,
-                                        active: input.state == ElementState::Pressed,
-                                    };
-
-                                    socket
-                                        .send(Packet::unreliable_sequenced(
-                                            SERVER_ADDRESS.parse().unwrap(),
-                                            serialize(&message).unwrap(),
-                                            None,
-                                        ))
-                                        .unwrap();
-                                }
-                                VirtualKeyCode::Space => {
-                                    let message = Message::MoveUp {
-                                        index: player_index,
-                                        active: input.state == ElementState::Pressed,
-                                    };
-
-                                    socket
-                                        .send(Packet::unreliable_sequenced(
-                                            SERVER_ADDRESS.parse().unwrap(),
-                                            serialize(&message).unwrap(),
-                                            None,
-                                        ))
-                                        .unwrap();
-                                }
-                                _ => (),
-                            }
-                        }
-                    }
-                    &WindowEvent::MouseInput { button, state, .. } => {
-                        if button == MouseButton::Left {
-                            let message = Message::ShootWeapon {
-                                index: player_index,
-                                active: state == ElementState::Pressed,
-                            };
-
-                            socket
-                                .send(Packet::unreliable_sequenced(
-                                    SERVER_ADDRESS.parse().unwrap(),
-                                    serialize(&message).unwrap(),
-                                    None,
-                                ))
-                                .unwrap();
-                        }
-                    }
-                    _ => {}
-                },
-                Event::DeviceEvent { event, .. } => {
-                    if let DeviceEvent::MouseMotion { delta } = event {
-                        let mouse_sens = 0.5;
-
-                        let message = Message::LookAround {
-                            index: player_index,
-                            yaw_delta: mouse_sens * delta.0 as f32,
-                            pitch_delta: mouse_sens * delta.1 as f32,
-                        };
-
-                        socket
-                            .send(Packet::unreliable_sequenced(
-                                SERVER_ADDRESS.parse().unwrap(),
-                                serialize(&message).unwrap(),
-                                None,
-                            ))
-                            .unwrap();
-                    }
-                }
-                _ => (),
-            }
+        if !HEADLESS && focused && cursor_in_window {
+            process_input_event(&event, &action_sender, &packet_sender, player_index);
         }
 
         match event {
@@ -312,18 +182,10 @@ fn main() {
                     elapsed_time += TIMESTEP;
 
                     // Run our game's logic.
-                    level.update(&mut engine, TIMESTEP);
+                    level.update(&mut engine, TIMESTEP, &packet_sender, &mut connected_client);
 
                     // Update engine each frame.
                     engine.update(TIMESTEP);
-
-                    socket
-                        .send(Packet::unreliable_sequenced(
-                            SERVER_ADDRESS.parse().unwrap(),
-                            serialize(&Message::HeartBeat).unwrap(),
-                            None,
-                        ))
-                        .unwrap();
                 }
 
                 // Rendering must be explicitly requested and handled after RedrawRequested event is received.
@@ -350,6 +212,12 @@ fn main() {
                 WindowEvent::Focused(focus) => {
                     focused = focus;
                 }
+                WindowEvent::CursorEntered { device_id } => {
+                    cursor_in_window = true;
+                }
+                WindowEvent::CursorLeft { device_id } => {
+                    cursor_in_window = false;
+                }
                 _ => (),
             },
             _ => *control_flow = ControlFlow::Poll,
@@ -357,53 +225,284 @@ fn main() {
     });
 }
 
-fn process_input_event(event: &Event<()>, sender: Sender<Message>) {
-    let player_index = 0;
+fn process_network_events(
+    engine: &mut GameEngine,
+    packet_receiver: &Receiver<SocketEvent>,
+    packet_sender: &Sender<Packet>,
+    action_sender: &mpsc::Sender<ActionMessage>,
+    level: &mut Level,
+    server: bool,
+    headless: bool,
+    connected_client: &mut String,
+    player_index: u32,
+) {
+    while let Ok(event) = packet_receiver.try_recv() {
+        match event {
+            SocketEvent::Packet(packet) => {
+                if let Ok(message) = deserialize::<NetworkMessage>(packet.payload()) {
+                    match message {
+                        NetworkMessage::Action { index, action } => {
+                            let scene = &engine.scenes[level.scene];
+                            let player = level.find_player(index);
+                            match action {
+                                // TODO: Handle each actionmessage to allow client side prediction
+                                ActionMessage::UpdateState {
+                                    index,
+                                    x,
+                                    y,
+                                    z,
+                                    velocity,
+                                    yaw,
+                                    pitch,
+                                } => {
+                                    action_sender.send(action).unwrap();
+                                }
+                                ActionMessage::ShootWeapon { index, active } => {
+                                    if server {
+                                        if let Ok(client_addr) =
+                                            connected_client.parse::<SocketAddr>()
+                                        {
+                                            // Validate shoot command
+                                            if let Some(player) = player {
+                                                if !active {
+                                                    packet_sender
+                                                        .send(Packet::reliable_ordered(
+                                                            client_addr,
+                                                            packet.payload().to_vec(),
+                                                            None,
+                                                        ))
+                                                        .unwrap();
+                                                } else if player.can_shoot() {
+                                                    packet_sender
+                                                        .send(Packet::reliable_ordered(
+                                                            client_addr,
+                                                            packet.payload().to_vec(),
+                                                            None,
+                                                        ))
+                                                        .unwrap();
+                                                }
+                                            }
+                                        }
+                                    }
+                                    action_sender.send(action).unwrap();
+                                }
+                                ActionMessage::DestroyBlock { index } => {
+                                    action_sender.send(action).unwrap();
+                                }
+                                _ => {
+                                    // Pass received actions along to clients with state updates
+                                    if let Some(player) = player {
+                                        let position = player.get_position(&scene);
+                                        // Actions should have already been applied for current player
+                                        if headless || player_index != index {
+                                            action_sender.send(action).unwrap();
+                                        }
+                                        if server {
+                                            if let Ok(client_addr) =
+                                                connected_client.parse::<SocketAddr>()
+                                            {
+                                                let state_message = NetworkMessage::Action {
+                                                    index: player.index,
+                                                    action: ActionMessage::UpdateState {
+                                                        index: player.index,
+                                                        x: position.x,
+                                                        y: position.y,
+                                                        z: position.z,
+                                                        velocity: player
+                                                            .get_vertical_velocity(&scene),
+                                                        yaw: player.get_yaw(),
+                                                        pitch: player.get_pitch(),
+                                                    },
+                                                };
 
+                                                // Send state update to other clients along with back to sender
+                                                // if client_addr.to_string()
+                                                //     != packet.addr().to_string()
+                                                // {
+                                                //     packet_sender
+                                                //         .send(Packet::unreliable_sequenced(
+                                                //             packet.addr(),
+                                                //             serialize(&state_message).unwrap(),
+                                                //             None,
+                                                //         ))
+                                                //         .unwrap();
+                                                // }
+                                                packet_sender
+                                                    .send(Packet::unreliable_sequenced(
+                                                        client_addr,
+                                                        serialize(&state_message).unwrap(),
+                                                        None,
+                                                    ))
+                                                    .unwrap();
+
+                                                packet_sender
+                                                    .send(Packet::unreliable_sequenced(
+                                                        client_addr,
+                                                        packet.payload().to_vec(),
+                                                        None,
+                                                    ))
+                                                    .unwrap();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        NetworkMessage::Connected => {
+                            packet_sender
+                                .send(Packet::reliable_ordered(
+                                    packet.addr(),
+                                    serialize(&NetworkMessage::Connected).unwrap(),
+                                    None,
+                                ))
+                                .unwrap();
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            SocketEvent::Connect(address) => {
+                // Server establishes connection with itself, but it shouldn't be considered a client
+                if address.to_string() != SERVER_ADDRESS {
+                    connected_client.clear();
+                    connected_client.push_str(&address.to_string()); // TODO: Does the library keep track of these connections?
+                }
+
+                println!("{} connected", address.to_string());
+            }
+            SocketEvent::Disconnect(address) => {
+                connected_client.clear();
+
+                println!("{} disconnected", address.to_string());
+            }
+            SocketEvent::Timeout(address) => {
+                println!("{} timed out", address.to_string());
+            }
+        }
+    }
+}
+
+fn process_input_event(
+    event: &Event<()>,
+    action_sender: &mpsc::Sender<ActionMessage>,
+    packet_sender: &Sender<Packet>,
+    player_index: u32,
+) {
+    let state_message = ActionMessage::UpdatePreviousState {
+        // TODO: Is this going to cause problems by grabbing state after other events have gone through?
+        index: player_index,
+    };
     match event {
         Event::WindowEvent { event, .. } => match event {
             WindowEvent::KeyboardInput { input, .. } => {
                 if let Some(key_code) = input.virtual_keycode {
                     match key_code {
                         VirtualKeyCode::W => {
-                            sender
-                                .send(Message::MoveForward {
-                                    index: player_index,
-                                    active: input.state == ElementState::Pressed,
-                                })
+                            let action = ActionMessage::MoveForward {
+                                index: player_index,
+                                active: input.state == ElementState::Pressed,
+                            };
+                            let message = NetworkMessage::Action {
+                                index: player_index,
+                                action: action,
+                            };
+
+                            // Should active = false be reliable since it's only sent once?
+                            packet_sender
+                                .send(Packet::unreliable_sequenced(
+                                    SERVER_ADDRESS.parse().unwrap(),
+                                    serialize(&message).unwrap(),
+                                    None,
+                                ))
                                 .unwrap();
+
+                            action_sender.send(state_message).unwrap();
+                            action_sender.send(action).unwrap();
                         }
                         VirtualKeyCode::S => {
-                            sender
-                                .send(Message::MoveBackward {
-                                    index: player_index,
-                                    active: input.state == ElementState::Pressed,
-                                })
+                            let action = ActionMessage::MoveBackward {
+                                index: player_index,
+                                active: input.state == ElementState::Pressed,
+                            };
+
+                            let message = NetworkMessage::Action {
+                                index: player_index,
+                                action: action,
+                            };
+
+                            packet_sender
+                                .send(Packet::unreliable_sequenced(
+                                    SERVER_ADDRESS.parse().unwrap(),
+                                    serialize(&message).unwrap(),
+                                    None,
+                                ))
                                 .unwrap();
+
+                            action_sender.send(state_message).unwrap();
+                            action_sender.send(action).unwrap();
                         }
                         VirtualKeyCode::A => {
-                            sender
-                                .send(Message::MoveLeft {
-                                    index: player_index,
-                                    active: input.state == ElementState::Pressed,
-                                })
+                            let action = ActionMessage::MoveLeft {
+                                index: player_index,
+                                active: input.state == ElementState::Pressed,
+                            };
+                            let message = NetworkMessage::Action {
+                                index: player_index,
+                                action: action,
+                            };
+
+                            packet_sender
+                                .send(Packet::unreliable_sequenced(
+                                    SERVER_ADDRESS.parse().unwrap(),
+                                    serialize(&message).unwrap(),
+                                    None,
+                                ))
                                 .unwrap();
+
+                            action_sender.send(state_message).unwrap();
+                            action_sender.send(action).unwrap();
                         }
                         VirtualKeyCode::D => {
-                            sender
-                                .send(Message::MoveRight {
-                                    index: player_index,
-                                    active: input.state == ElementState::Pressed,
-                                })
+                            let action = ActionMessage::MoveRight {
+                                index: player_index,
+                                active: input.state == ElementState::Pressed,
+                            };
+                            let message = NetworkMessage::Action {
+                                index: player_index,
+                                action: action,
+                            };
+
+                            packet_sender
+                                .send(Packet::unreliable_sequenced(
+                                    SERVER_ADDRESS.parse().unwrap(),
+                                    serialize(&message).unwrap(),
+                                    None,
+                                ))
                                 .unwrap();
+
+                            action_sender.send(state_message).unwrap();
+                            action_sender.send(action).unwrap();
                         }
                         VirtualKeyCode::Space => {
-                            sender
-                                .send(Message::MoveUp {
-                                    index: player_index,
-                                    active: input.state == ElementState::Pressed,
-                                })
+                            let action = ActionMessage::MoveUp {
+                                index: player_index,
+                                active: input.state == ElementState::Pressed,
+                            };
+                            let message = NetworkMessage::Action {
+                                index: player_index,
+                                action: action,
+                            };
+
+                            packet_sender
+                                .send(Packet::unreliable_sequenced(
+                                    SERVER_ADDRESS.parse().unwrap(),
+                                    serialize(&message).unwrap(),
+                                    None,
+                                ))
                                 .unwrap();
+
+                            action_sender.send(state_message).unwrap();
+                            action_sender.send(action).unwrap();
                         }
                         _ => (),
                     }
@@ -411,11 +510,20 @@ fn process_input_event(event: &Event<()>, sender: Sender<Message>) {
             }
             &WindowEvent::MouseInput { button, state, .. } => {
                 if button == MouseButton::Left {
-                    sender
-                        .send(Message::ShootWeapon {
+                    let message = NetworkMessage::Action {
+                        index: player_index,
+                        action: ActionMessage::ShootWeapon {
                             index: player_index,
                             active: state == ElementState::Pressed,
-                        })
+                        },
+                    };
+
+                    packet_sender
+                        .send(Packet::reliable_ordered(
+                            SERVER_ADDRESS.parse().unwrap(),
+                            serialize(&message).unwrap(),
+                            None,
+                        ))
                         .unwrap();
                 }
             }
@@ -425,13 +533,26 @@ fn process_input_event(event: &Event<()>, sender: Sender<Message>) {
             if let DeviceEvent::MouseMotion { delta } = event {
                 let mouse_sens = 0.5;
 
-                sender
-                    .send(Message::LookAround {
-                        index: player_index,
-                        yaw_delta: mouse_sens * delta.0 as f32,
-                        pitch_delta: mouse_sens * delta.1 as f32,
-                    })
+                let action = ActionMessage::LookAround {
+                    index: player_index,
+                    yaw_delta: mouse_sens * delta.0 as f32,
+                    pitch_delta: mouse_sens * delta.1 as f32,
+                };
+
+                let message = NetworkMessage::Action {
+                    index: player_index,
+                    action: action,
+                };
+
+                packet_sender
+                    .send(Packet::unreliable_sequenced(
+                        SERVER_ADDRESS.parse().unwrap(),
+                        serialize(&message).unwrap(),
+                        None,
+                    ))
                     .unwrap();
+
+                action_sender.send(action).unwrap();
             }
         }
         _ => (),
