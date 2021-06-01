@@ -1,5 +1,9 @@
-use std::sync::mpsc::{self, Receiver};
+use std::{
+    net::SocketAddr,
+    sync::mpsc::{self, Receiver},
+};
 
+use bincode::serialize;
 use crossbeam_channel::Sender;
 use laminar::Packet;
 use rg3d::{
@@ -8,7 +12,7 @@ use rg3d::{
         color::Color,
         pool::{Handle, Pool},
     },
-    scene::{node::Node, Scene},
+    scene::{node::Node, ColliderHandle, Scene},
 };
 
 use crate::{
@@ -19,8 +23,9 @@ use crate::{
 
 pub struct Level {
     pub scene: Handle<Scene>,
-    players: Pool<Player>,
+    players: Vec<Player>,
     receiver: Receiver<ActionMessage>,
+    sender: mpsc::Sender<ActionMessage>,
 }
 
 impl Level {
@@ -28,6 +33,7 @@ impl Level {
         engine: &mut GameEngine,
         scene_name: &str,
         receiver: Receiver<ActionMessage>,
+        sender: mpsc::Sender<ActionMessage>,
     ) -> Self {
         // Make message queue.
         // let (_, receiver) = mpsc::channel();
@@ -47,21 +53,38 @@ impl Level {
             .unwrap()
             .instantiate_geometry(&mut scene);
 
-        scene.ambient_lighting_color = Color::opaque(255, 255, 255);
+        for (handle, node) in scene.graph.pair_iter() {
+            if let Some(body_handle) = scene.physics_binder.body_of(handle) {
+                if let Some(body) = scene.physics.bodies.get(body_handle.into()) {
+                    for &collider_handle in body.colliders().iter() {
+                        scene.physics.colliders[collider_handle].friction = 0.0;
+                    }
+                }
+            }
+        }
 
-        // Disable SSAO
+        scene.ambient_lighting_color = Color::opaque(255, 255, 255);
 
         // Ask server to return new player and then spawn new player from network event
 
         Self {
             scene: engine.scenes.add(scene),
-            players: Pool::new(),
+            players: Vec::new(),
             receiver,
+            sender,
         }
     }
 
-    pub fn find_player(&mut self, index: u32) -> Option<&mut Player> {
+    pub fn get_player_by_index(&mut self, index: u32) -> Option<&mut Player> {
         self.players.iter_mut().find(|p| p.index == index)
+    }
+
+    pub fn get_player_by_collider(&mut self, collider: ColliderHandle) -> Option<&mut Player> {
+        self.players.iter_mut().find(|p| p.collider == collider)
+    }
+
+    pub fn remove_player(&mut self, index: u32) {
+        self.players.retain(|p| p.index != index)
     }
 
     pub fn update(
@@ -70,6 +93,7 @@ impl Level {
         dt: f32,
         packet_sender: &Sender<Packet>,
         client_address: &mut String,
+        elapsed_time: f32,
     ) {
         let scene = &mut engine.scenes[self.scene];
 
@@ -77,32 +101,32 @@ impl Level {
             println!("action received: {:?}", action);
             match action {
                 ActionMessage::ShootWeapon { index, active } => {
-                    if let Some(player) = self.find_player(index) {
+                    if let Some(player) = self.get_player_by_index(index) {
                         player.controller.shoot = active;
                     }
                 }
                 ActionMessage::MoveForward { index, active } => {
-                    if let Some(player) = self.find_player(index) {
+                    if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_forward = active;
                     }
                 }
                 ActionMessage::MoveBackward { index, active } => {
-                    if let Some(player) = self.find_player(index) {
+                    if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_backward = active;
                     }
                 }
                 ActionMessage::MoveLeft { index, active } => {
-                    if let Some(player) = self.find_player(index) {
+                    if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_left = active;
                     }
                 }
                 ActionMessage::MoveRight { index, active } => {
-                    if let Some(player) = self.find_player(index) {
+                    if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_right = active;
                     }
                 }
                 ActionMessage::MoveUp { index, active } => {
-                    if let Some(player) = self.find_player(index) {
+                    if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_up = active;
                     }
                 }
@@ -111,13 +135,14 @@ impl Level {
                     yaw_delta,
                     pitch_delta,
                 } => {
-                    if let Some(player) = self.find_player(index) {
+                    if let Some(player) = self.get_player_by_index(index) {
                         player.controller.yaw -= yaw_delta;
                         player.controller.pitch =
                             (player.controller.pitch + pitch_delta).clamp(-90.0, 90.0);
                     }
                 }
                 ActionMessage::UpdateState {
+                    timestamp,
                     index,
                     x,
                     y,
@@ -126,25 +151,24 @@ impl Level {
                     yaw,
                     pitch,
                 } => {
-                    if let Some(player) = self.find_player(index) {
-                        player.controller.new_state = Some(PlayerState {
+                    if let Some(player) = self.get_player_by_index(index) {
+                        let new_state = PlayerState {
+                            timestamp: timestamp,
                             position: Vector3::new(x, y, z),
-                            velocity: velocity,
+                            vertical_velocity: velocity,
                             yaw: yaw,
                             pitch: pitch,
-                        });
-                    }
-                }
-                ActionMessage::UpdatePreviousState { index } => {
-                    if let Some(player) = self.find_player(index) {
-                        // TODO: Does state need to be indexed? Could it be the wrong states being compared if multiple actions took place on client, but server hasn't sent a response yet?
-                        let position = player.get_position(&scene);
-                        player.controller.previous_state = PlayerState {
-                            position,
-                            velocity: player.get_vertical_velocity(&scene),
+                        };
+                        let previous_state = PlayerState {
+                            timestamp: timestamp,
+                            position: player.get_position(&scene),
+                            vertical_velocity: player.get_vertical_velocity(&scene),
                             yaw: player.get_yaw(),
                             pitch: player.get_pitch(),
                         };
+                        player.controller.previous_states.retain(|state| state.timestamp > timestamp);
+                        player.controller.previous_states.push(previous_state);
+                        player.controller.new_state = Some(new_state);
                     }
                 }
                 ActionMessage::DestroyBlock { index } => {
@@ -157,17 +181,51 @@ impl Level {
                         }
                     }
                 }
+                ActionMessage::KillPlayer { index } => {
+                    if let Some(player) = self.get_player_by_index(index) {
+                        player.remove_nodes(scene);
+                    }
+                    self.remove_player(index);
+                }
                 _ => (),
             }
         }
 
         for player in self.players.iter_mut() {
+            if cfg!(feature = "server") {
+                let position = player.get_position(&scene);
+                if let Ok(client_addr) = client_address.parse::<SocketAddr>() {
+                    let state_message = NetworkMessage::Action {
+                        index: player.index,
+                        action: ActionMessage::UpdateState {
+                            timestamp: elapsed_time,
+                            index: player.index,
+                            x: position.x,
+                            y: position.y,
+                            z: position.z,
+                            velocity: player.get_vertical_velocity(&scene),
+                            yaw: player.get_yaw(),
+                            pitch: player.get_pitch(),
+                        },
+                    };
+
+                    packet_sender
+                        .send(Packet::unreliable_sequenced(
+                            client_addr,
+                            serialize(&state_message).unwrap(),
+                            None,
+                        ))
+                        .unwrap();
+                }
+            }
+
             player.update(
                 dt,
                 scene,
                 engine.resource_manager.clone(),
                 packet_sender,
                 client_address,
+                &self.sender,
             );
         }
     }
@@ -190,6 +248,6 @@ impl Level {
         )
         .await;
 
-        let _ = self.players.spawn(player);
+        let _ = self.players.push(player);
     }
 }

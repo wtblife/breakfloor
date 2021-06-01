@@ -17,7 +17,7 @@ use rg3d::{
         geometry::ColliderBuilder,
     },
     renderer::surface::{SurfaceBuilder, SurfaceSharedData},
-    resource::texture::TextureWrapMode,
+    resource::{model, texture::TextureWrapMode},
     scene::{
         base::BaseBuilder,
         camera::{self, CameraBuilder, SkyBox},
@@ -33,7 +33,7 @@ use rg3d::{
 use std::{
     net::SocketAddr,
     path::Path,
-    sync::{Arc, RwLock},
+    sync::{mpsc, Arc, RwLock},
 };
 
 use crate::{
@@ -43,7 +43,6 @@ use crate::{
 
 const MOVEMENT_SPEED: f32 = 1.5;
 const GRAVITY_SCALE: f32 = 0.5;
-
 const JET_SPEED: f32 = 0.012;
 
 #[derive(Default)]
@@ -57,7 +56,7 @@ pub struct PlayerController {
     pub yaw: f32,
     pub shoot: bool,
     pub new_state: Option<PlayerState>,
-    pub previous_state: PlayerState,
+    pub previous_states: Vec<PlayerState>,
 }
 
 pub struct Player {
@@ -66,7 +65,7 @@ pub struct Player {
     spine: Handle<Node>,
     camera: Handle<Node>,
     rigid_body: RigidBodyHandle,
-    collider: ColliderHandle,
+    pub collider: ColliderHandle,
     shot_timer: f32,
     recoil_offset: Vector3<f32>,
     recoil_target_offset: Vector3<f32>,
@@ -75,10 +74,10 @@ pub struct Player {
 }
 
 #[derive(Default)]
-
 pub struct PlayerState {
+    pub timestamp: f32,
     pub position: Vector3<f32>,
-    pub velocity: f32,
+    pub vertical_velocity: f32,
     pub yaw: f32,
     pub pitch: f32,
 }
@@ -92,17 +91,13 @@ impl Player {
         current_player: bool,
         index: u32,
     ) -> Self {
-        let first_person_model = resource_manager
+        let model_resource = resource_manager
             .request_model("data/models/shooting.fbx")
             .await
-            .unwrap()
-            .instantiate_geometry(scene);
+            .unwrap();
+        let first_person_model = model_resource.instantiate_geometry(scene);
 
-        let third_person_model = resource_manager
-            .request_model("data/models/shooting.fbx")
-            .await
-            .unwrap()
-            .instantiate_geometry(scene);
+        let third_person_model = model_resource.instantiate_geometry(scene);
 
         let camera_pos = Vector3::new(0.0, 0.37, 0.0);
         let model_pos = Vector3::new(0.0, -0.82, -0.07);
@@ -163,9 +158,10 @@ impl Player {
         );
 
         // Add capsule collider for the rigid body.
-        let collider = scene
-            .physics
-            .add_collider(ColliderBuilder::capsule_y(0.25, 0.20).build(), rigid_body);
+        let collider = scene.physics.add_collider(
+            ColliderBuilder::capsule_y(0.25, 0.20).friction(0.0).build(),
+            rigid_body,
+        );
 
         // Bind pivot with rigid body. Scene will automatically sync transform of the pivot
         // with the transform of the rigid body.
@@ -193,6 +189,7 @@ impl Player {
         resource_manager: ResourceManager,
         packet_sender: &Sender<Packet>,
         client_address: &mut String,
+        action_sender: &mpsc::Sender<ActionMessage>,
     ) {
         self.shot_timer = (self.shot_timer - dt).max(0.0);
 
@@ -262,7 +259,7 @@ impl Player {
 
         body.set_position(position, true);
 
-        self.interpolate_state(body, &mut velocity);
+        self.interpolate_state(body, dt);
 
         // Set pitch for the camera. These lines responsible for up-down camera rotation.
 
@@ -275,41 +272,59 @@ impl Player {
         );
 
         if self.controller.shoot {
-            self.shoot_weapon(scene, resource_manager, packet_sender, client_address);
+            self.shoot_weapon(
+                scene,
+                resource_manager,
+                packet_sender,
+                client_address,
+                action_sender,
+            );
         }
     }
 
-    fn interpolate_state(&mut self, body: &mut RigidBody, velocity: &mut Vector3<f32>) {
-        if let Some(new_state) = &self.controller.new_state {
-            let distance = new_state
-                .position
-                .sqr_distance(&self.controller.previous_state.position);
+    fn interpolate_state(&mut self, body: &mut RigidBody, dt: f32) {
+        if let Some(new_state) = self.controller.new_state.take() {
+            self.controller.previous_states.retain(|previous_state| {
+                let matches = previous_state.timestamp == new_state.timestamp;
+                if matches {
+                    // TODO: Should probably keep multiple timestamped/indexed previous states and make sure the same state is being matched
+                    let distance = new_state.position.sqr_distance(&previous_state.position);
 
-            let error = (distance / MOVEMENT_SPEED).clamp(0.0, 1.0);
+                    let max_distance_tolerated = MOVEMENT_SPEED;
+                    let error = (distance / max_distance_tolerated).clamp(0.0, 1.0);
 
-            if error > 0.0 {
-                let mut pos = *body.position();
-                // TODO: WHY IS THIS NOT UPDATING
-                pos = pos.lerp_slerp(
-                    &Isometry::from_parts(
-                        Translation3::new(
-                            new_state.position.x,
-                            new_state.position.y,
-                            new_state.position.z,
-                        ),
-                        pos.rotation,
-                    ),
-                    error,
-                );
-                body.set_position(pos, true);
-                self.controller.previous_state.position = pos.translation.vector;
-                self.controller.new_state = None;
+                    // let max_change = Vector3::new(
+                    //     new_state.velocity.x,
+                    //     new_state.velocity.y,
+                    //     new_state.velocity.z,
+                    // );
+                    // let new_pos = new_state.position + max_change;
+                    // let distance = new_pos.sqr_distance(&self.controller.previous_state.position);
 
-                println!(
-                    "interpolated new position based on error of {}: {:?}",
-                    error, pos
-                );
-            }
+                    if error > f32::EPSILON {
+                        let mut pos = *body.position();
+                        pos = pos.lerp_slerp(
+                            &Isometry::from_parts(
+                                Translation3::new(
+                                    new_state.position.x,
+                                    new_state.position.y,
+                                    new_state.position.z,
+                                ),
+                                pos.rotation,
+                            ),
+                            error,
+                        );
+                        body.set_position(pos, true);
+
+                        println!(
+                            "interpolated new position based on error of {}: {:?}",
+                            error, pos
+                        );
+                    }
+                }
+
+                !matches
+            });
         }
     }
 
@@ -323,6 +338,7 @@ impl Player {
         resource_manager: ResourceManager,
         packet_sender: &Sender<Packet>,
         client_address: &mut String,
+        action_sender: &mpsc::Sender<ActionMessage>,
     ) {
         if self.can_shoot() {
             self.shot_timer = 0.1;
@@ -330,6 +346,8 @@ impl Player {
             self.recoil_target_offset = Vector3::new(0.0, 0.0, -0.035);
 
             let mut intersections = Vec::new();
+
+            // TODO: Need to use a third person weapon pivot if camera is not enabled
 
             // Make a ray that starts at the weapon's position in the world and look toward
             // "look" vector of the camera.
@@ -367,17 +385,27 @@ impl Player {
                     let tag = node.tag().clone();
 
                     let mut destroy_block = false;
+                    let mut kill_player = false;
 
                     // TODO: Should probably use collider groups instead of tag?
                     match tag {
                         "wall" => (),
-                        "player" => (),
-                        "0" => {
+                        "player" => {
+                            if cfg!(feature = "server") {
+                                node.set_tag("player_1_hp".to_string())
+                            }
+                        }
+                        "player_1_hp" => {
+                            if cfg!(feature = "server") {
+                                kill_player = true;
+                            }
+                        }
+                        "destructable" => {
                             destroy_block = true;
                         }
                         _ => {
                             if cfg!(feature = "server") {
-                                node.set_tag("0".to_string())
+                                node.set_tag("destructable".to_string())
                             }
                         }
                     }
@@ -391,8 +419,6 @@ impl Player {
                                 },
                             };
 
-                            println!("sent destroyed block message");
-
                             packet_sender
                                 .send(Packet::reliable_ordered(
                                     client_addr,
@@ -405,6 +431,27 @@ impl Player {
                         scene.remove_node(node_handle);
                         scene.physics.remove_body(body.into());
                     }
+
+                    // TODO: Do something like send gamemessage KillPlayer(collideer) which uses level.get_player_by_collider to get index and then sends PlayerMessage KillPlayer(index)
+                    // if kill_player {
+                    //     if let Ok(client_addr) = client_address.parse::<SocketAddr>() {
+                    //         let action = ActionMessage::KillPlayer { index: self.index };
+                    //         let message = NetworkMessage::Action {
+                    //             index: self.index, // TODO: Probably need a different kind of message for GameMessage and PlayerMessage?
+                    //             action: action,
+                    //         };
+
+                    //         action_sender.send(action);
+
+                    //         packet_sender
+                    //             .send(Packet::reliable_ordered(
+                    //                 client_addr,
+                    //                 serialize(&message).unwrap(),
+                    //                 None,
+                    //             ))
+                    //             .unwrap();
+                    //     }
+                    // }
                 }
 
                 // Add bullet impact effect.
@@ -456,6 +503,11 @@ impl Player {
 
     pub fn get_pitch(&self) -> f32 {
         self.controller.pitch
+    }
+
+    pub fn remove_nodes(&mut self, scene: &mut Scene) {
+        scene.physics.remove_body(self.rigid_body);
+        scene.remove_node(self.pivot);
     }
 }
 

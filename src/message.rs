@@ -27,6 +27,10 @@ pub enum ActionMessage {
         index: u32,
         active: bool,
     },
+    Jump {
+        index: u32,
+        active: bool,
+    },
     LookAround {
         index: u32,
         yaw_delta: f32,
@@ -34,6 +38,7 @@ pub enum ActionMessage {
     },
     // Used for synchronizing clients
     UpdateState {
+        timestamp: f32,
         index: u32,
         x: f32,
         y: f32,
@@ -46,6 +51,9 @@ pub enum ActionMessage {
         index: u32,
     },
     DestroyBlock {
+        index: u32,
+    },
+    KillPlayer {
         index: u32,
     },
 }

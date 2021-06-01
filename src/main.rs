@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod level;
 mod message;
 mod player;
@@ -43,7 +45,7 @@ use rg3d::{
 };
 use std::{
     fmt,
-    net::SocketAddr,
+    net::{SocketAddr, ToSocketAddrs},
     os::windows::process,
     path::Path,
     sync::{
@@ -60,7 +62,7 @@ type GameEngine = Engine<(), StubNode>;
 
 // Our game logic will be updated at 60 Hz rate.
 const TIMESTEP: f32 = 1.0 / 60.0;
-const SERVER_ADDRESS: &str = "73.147.172.171:12351";
+const SERVER_ADDRESS: &str = "wtblife.ddns.net:12351";
 
 fn main() {
     const SERVER: bool = cfg!(feature = "server");
@@ -97,22 +99,26 @@ fn main() {
     let (action_sender, action_receiver) = mpsc::channel();
 
     // Load level
-    let mut level =
-        rg3d::futures::executor::block_on(Level::new(&mut engine, "block_scene", action_receiver));
+    let mut level = rg3d::futures::executor::block_on(Level::new(
+        &mut engine,
+        "block_scene",
+        action_receiver,
+        action_sender.clone(),
+    ));
 
     let player_index: u32 = if SERVER { 1 } else { 0 };
 
     rg3d::futures::executor::block_on(level.spawn_player(
         &mut engine,
         0,
-        Vector3::new(0.0, 1.0, 0.0),
+        Vector3::new(-3.0, 1.0, 0.0),
         player_index == 0,
     ));
 
     rg3d::futures::executor::block_on(level.spawn_player(
         &mut engine,
         1,
-        Vector3::new(0.0, 1.0, 1.0),
+        Vector3::new(6.0, 1.0, 0.0),
         player_index == 1,
     ));
 
@@ -132,10 +138,16 @@ fn main() {
     let packet_sender: Sender<Packet> = socket.get_packet_sender();
     let packet_receiver: Receiver<SocketEvent> = socket.get_event_receiver();
 
+    let server_address = SERVER_ADDRESS
+        .to_socket_addrs()
+        .unwrap()
+        .next()
+        .expect("Failed to resolve hostname");
+
     if !HEADLESS {
         packet_sender
             .send(Packet::reliable_ordered(
-                SERVER_ADDRESS.parse().unwrap(),
+                server_address,
                 serialize(&NetworkMessage::Connected).unwrap(),
                 None,
             ))
@@ -151,7 +163,6 @@ fn main() {
     let mut elapsed_time = 0.0;
     let mut focused = true;
     let mut cursor_in_window = true;
-
     let mut connected_client = String::new(); // TODO: Handle multiple clients
 
     event_loop.run(move |event, _, control_flow| {
@@ -165,10 +176,17 @@ fn main() {
             HEADLESS,
             &mut connected_client,
             player_index,
+            &server_address,
         );
 
         if !HEADLESS && focused && cursor_in_window {
-            process_input_event(&event, &action_sender, &packet_sender, player_index);
+            process_input_event(
+                &event,
+                &action_sender,
+                &packet_sender,
+                player_index,
+                &server_address,
+            );
         }
 
         match event {
@@ -182,7 +200,13 @@ fn main() {
                     elapsed_time += TIMESTEP;
 
                     // Run our game's logic.
-                    level.update(&mut engine, TIMESTEP, &packet_sender, &mut connected_client);
+                    level.update(
+                        &mut engine,
+                        TIMESTEP,
+                        &packet_sender,
+                        &mut connected_client,
+                        elapsed_time,
+                    );
 
                     // Update engine each frame.
                     engine.update(TIMESTEP);
@@ -235,6 +259,7 @@ fn process_network_events(
     headless: bool,
     connected_client: &mut String,
     player_index: u32,
+    server_address: &SocketAddr,
 ) {
     while let Ok(event) = packet_receiver.try_recv() {
         match event {
@@ -243,10 +268,10 @@ fn process_network_events(
                     match message {
                         NetworkMessage::Action { index, action } => {
                             let scene = &engine.scenes[level.scene];
-                            let player = level.find_player(index);
+                            let player = level.get_player_by_index(index);
                             match action {
-                                // TODO: Handle each actionmessage to allow client side prediction
                                 ActionMessage::UpdateState {
+                                    timestamp,
                                     index,
                                     x,
                                     y,
@@ -289,8 +314,11 @@ fn process_network_events(
                                 ActionMessage::DestroyBlock { index } => {
                                     action_sender.send(action).unwrap();
                                 }
+                                ActionMessage::KillPlayer { index } => {
+                                    action_sender.send(action).unwrap();
+                                }
                                 _ => {
-                                    // Pass received actions along to clients with state updates
+                                    // Pass received actions along to clients
                                     if let Some(player) = player {
                                         let position = player.get_position(&scene);
                                         // Actions should have already been applied for current player
@@ -301,40 +329,6 @@ fn process_network_events(
                                             if let Ok(client_addr) =
                                                 connected_client.parse::<SocketAddr>()
                                             {
-                                                let state_message = NetworkMessage::Action {
-                                                    index: player.index,
-                                                    action: ActionMessage::UpdateState {
-                                                        index: player.index,
-                                                        x: position.x,
-                                                        y: position.y,
-                                                        z: position.z,
-                                                        velocity: player
-                                                            .get_vertical_velocity(&scene),
-                                                        yaw: player.get_yaw(),
-                                                        pitch: player.get_pitch(),
-                                                    },
-                                                };
-
-                                                // Send state update to other clients along with back to sender
-                                                // if client_addr.to_string()
-                                                //     != packet.addr().to_string()
-                                                // {
-                                                //     packet_sender
-                                                //         .send(Packet::unreliable_sequenced(
-                                                //             packet.addr(),
-                                                //             serialize(&state_message).unwrap(),
-                                                //             None,
-                                                //         ))
-                                                //         .unwrap();
-                                                // }
-                                                packet_sender
-                                                    .send(Packet::unreliable_sequenced(
-                                                        client_addr,
-                                                        serialize(&state_message).unwrap(),
-                                                        None,
-                                                    ))
-                                                    .unwrap();
-
                                                 packet_sender
                                                     .send(Packet::unreliable_sequenced(
                                                         client_addr,
@@ -363,7 +357,7 @@ fn process_network_events(
             }
             SocketEvent::Connect(address) => {
                 // Server establishes connection with itself, but it shouldn't be considered a client
-                if address.to_string() != SERVER_ADDRESS {
+                if address.to_string() != server_address.to_string() {
                     connected_client.clear();
                     connected_client.push_str(&address.to_string()); // TODO: Does the library keep track of these connections?
                 }
@@ -387,11 +381,8 @@ fn process_input_event(
     action_sender: &mpsc::Sender<ActionMessage>,
     packet_sender: &Sender<Packet>,
     player_index: u32,
+    server_address: &SocketAddr,
 ) {
-    let state_message = ActionMessage::UpdatePreviousState {
-        // TODO: Is this going to cause problems by grabbing state after other events have gone through?
-        index: player_index,
-    };
     match event {
         Event::WindowEvent { event, .. } => match event {
             WindowEvent::KeyboardInput { input, .. } => {
@@ -410,13 +401,12 @@ fn process_input_event(
                             // Should active = false be reliable since it's only sent once?
                             packet_sender
                                 .send(Packet::unreliable_sequenced(
-                                    SERVER_ADDRESS.parse().unwrap(),
+                                    *server_address,
                                     serialize(&message).unwrap(),
                                     None,
                                 ))
                                 .unwrap();
 
-                            action_sender.send(state_message).unwrap();
                             action_sender.send(action).unwrap();
                         }
                         VirtualKeyCode::S => {
@@ -432,13 +422,12 @@ fn process_input_event(
 
                             packet_sender
                                 .send(Packet::unreliable_sequenced(
-                                    SERVER_ADDRESS.parse().unwrap(),
+                                    *server_address,
                                     serialize(&message).unwrap(),
                                     None,
                                 ))
                                 .unwrap();
 
-                            action_sender.send(state_message).unwrap();
                             action_sender.send(action).unwrap();
                         }
                         VirtualKeyCode::A => {
@@ -453,13 +442,12 @@ fn process_input_event(
 
                             packet_sender
                                 .send(Packet::unreliable_sequenced(
-                                    SERVER_ADDRESS.parse().unwrap(),
+                                    *server_address,
                                     serialize(&message).unwrap(),
                                     None,
                                 ))
                                 .unwrap();
 
-                            action_sender.send(state_message).unwrap();
                             action_sender.send(action).unwrap();
                         }
                         VirtualKeyCode::D => {
@@ -474,13 +462,12 @@ fn process_input_event(
 
                             packet_sender
                                 .send(Packet::unreliable_sequenced(
-                                    SERVER_ADDRESS.parse().unwrap(),
+                                    *server_address,
                                     serialize(&message).unwrap(),
                                     None,
                                 ))
                                 .unwrap();
 
-                            action_sender.send(state_message).unwrap();
                             action_sender.send(action).unwrap();
                         }
                         VirtualKeyCode::Space => {
@@ -495,13 +482,12 @@ fn process_input_event(
 
                             packet_sender
                                 .send(Packet::unreliable_sequenced(
-                                    SERVER_ADDRESS.parse().unwrap(),
+                                    *server_address,
                                     serialize(&message).unwrap(),
                                     None,
                                 ))
                                 .unwrap();
 
-                            action_sender.send(state_message).unwrap();
                             action_sender.send(action).unwrap();
                         }
                         _ => (),
@@ -520,7 +506,7 @@ fn process_input_event(
 
                     packet_sender
                         .send(Packet::reliable_ordered(
-                            SERVER_ADDRESS.parse().unwrap(),
+                            *server_address,
                             serialize(&message).unwrap(),
                             None,
                         ))
@@ -546,7 +532,7 @@ fn process_input_event(
 
                 packet_sender
                     .send(Packet::unreliable_sequenced(
-                        SERVER_ADDRESS.parse().unwrap(),
+                        *server_address,
                         serialize(&message).unwrap(),
                         None,
                     ))
