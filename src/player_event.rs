@@ -2,7 +2,7 @@ use rg3d::core::algebra::{Translation3, Vector3};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
-pub enum ActionMessage {
+pub enum PlayerEvent {
     ShootWeapon {
         index: u32,
         active: bool,
@@ -40,15 +40,11 @@ pub enum ActionMessage {
     UpdateState {
         timestamp: f32,
         index: u32,
-        x: f32,
-        y: f32,
-        z: f32,
-        velocity: f32,
+        position: SerializableVector,
+        velocity: SerializableVector,
         yaw: f32,
         pitch: f32,
-    },
-    UpdatePreviousState {
-        index: u32,
+        shoot: bool,
     },
     DestroyBlock {
         index: u32,
@@ -56,10 +52,26 @@ pub enum ActionMessage {
     KillPlayer {
         index: u32,
     },
+    SpawnPlayer {
+        // TODO: First send all the existing player spawn events to only the player that joined, then send everyone the spawned event for the current player index
+        state: SerializablePlayerState, // TODO: Should probably just serialize PlayerState
+        index: u32,
+        current_player: bool,
+    },
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum NetworkMessage {
-    Connected,
-    Action { index: u32, action: ActionMessage },
+#[derive(Default, Debug, Serialize, Deserialize, Copy, Clone)]
+pub struct SerializablePlayerState {
+    pub position: SerializableVector,
+    pub velocity: SerializableVector,
+    pub yaw: f32,
+    pub pitch: f32,
+    pub shoot: bool,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize, Clone, Copy)]
+pub struct SerializableVector {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
 }

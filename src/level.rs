@@ -1,11 +1,8 @@
 use std::{
     net::SocketAddr,
-    sync::mpsc::{self, Receiver},
+    sync::mpsc::{self, channel, Receiver, Sender},
 };
 
-use bincode::serialize;
-use crossbeam_channel::Sender;
-use laminar::Packet;
 use rg3d::{
     core::{
         algebra::Vector3,
@@ -14,27 +11,31 @@ use rg3d::{
     },
     scene::{node::Node, ColliderHandle, Scene},
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    message::{ActionMessage, NetworkMessage},
+    network_manager::{NetworkManager, NetworkMessage},
     player::{Player, PlayerState},
+    player_event::{PlayerEvent, SerializableVector},
     GameEngine,
 };
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LevelState {
+    pub destroyed_blocks: Vec<u32>,
+}
+
 pub struct Level {
     pub scene: Handle<Scene>,
+    pub name: String,
     players: Vec<Player>,
-    receiver: Receiver<ActionMessage>,
-    sender: mpsc::Sender<ActionMessage>,
+    receiver: Receiver<PlayerEvent>,
+    pub sender: Sender<PlayerEvent>,
+    pub state: LevelState,
 }
 
 impl Level {
-    pub async fn new(
-        engine: &mut GameEngine,
-        scene_name: &str,
-        receiver: Receiver<ActionMessage>,
-        sender: mpsc::Sender<ActionMessage>,
-    ) -> Self {
+    pub async fn new(engine: &mut GameEngine, scene_name: &str, state: LevelState) -> Self {
         // Make message queue.
         // let (_, receiver) = mpsc::channel();
 
@@ -66,13 +67,22 @@ impl Level {
         scene.ambient_lighting_color = Color::opaque(255, 255, 255);
 
         // Ask server to return new player and then spawn new player from network event
+        let (sender, receiver) = channel();
 
-        Self {
+        let mut level = Self {
+            name: String::from(scene_name),
             scene: engine.scenes.add(scene),
             players: Vec::new(),
-            receiver,
-            sender,
-        }
+            receiver: receiver,
+            sender: sender,
+            state: LevelState {
+                destroyed_blocks: Vec::new(),
+            },
+        };
+
+        level.apply_state(engine, state);
+
+        level
     }
 
     pub fn get_player_by_index(&mut self, index: u32) -> Option<&mut Player> {
@@ -91,46 +101,43 @@ impl Level {
         &mut self,
         engine: &mut GameEngine,
         dt: f32,
-        packet_sender: &Sender<Packet>,
-        client_address: &mut String,
+        network_manager: &mut NetworkManager,
         elapsed_time: f32,
     ) {
-        let scene = &mut engine.scenes[self.scene];
-
         while let Ok(action) = self.receiver.try_recv() {
-            println!("action received: {:?}", action);
+            println!("player event received: {:?}", action);
             match action {
-                ActionMessage::ShootWeapon { index, active } => {
+                PlayerEvent::ShootWeapon { index, active } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.shoot = active;
                     }
                 }
-                ActionMessage::MoveForward { index, active } => {
+                PlayerEvent::MoveForward { index, active } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_forward = active;
                     }
                 }
-                ActionMessage::MoveBackward { index, active } => {
+                PlayerEvent::MoveBackward { index, active } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_backward = active;
                     }
                 }
-                ActionMessage::MoveLeft { index, active } => {
+                PlayerEvent::MoveLeft { index, active } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_left = active;
                     }
                 }
-                ActionMessage::MoveRight { index, active } => {
+                PlayerEvent::MoveRight { index, active } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_right = active;
                     }
                 }
-                ActionMessage::MoveUp { index, active } => {
+                PlayerEvent::MoveUp { index, active } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_up = active;
                     }
                 }
-                ActionMessage::LookAround {
+                PlayerEvent::LookAround {
                     index,
                     yaw_delta,
                     pitch_delta,
@@ -141,90 +148,119 @@ impl Level {
                             (player.controller.pitch + pitch_delta).clamp(-90.0, 90.0);
                     }
                 }
-                ActionMessage::UpdateState {
+                PlayerEvent::UpdateState {
                     timestamp,
                     index,
-                    x,
-                    y,
-                    z,
+                    position,
                     velocity,
                     yaw,
                     pitch,
+                    shoot,
                 } => {
+                    let scene = &mut engine.scenes[self.scene];
                     if let Some(player) = self.get_player_by_index(index) {
+                        let x = position.x;
                         let new_state = PlayerState {
                             timestamp: timestamp,
-                            position: Vector3::new(x, y, z),
-                            vertical_velocity: velocity,
+                            position: Vector3::new(position.x, position.y, position.z),
+                            velocity: Vector3::new(velocity.x, velocity.y, velocity.z),
                             yaw: yaw,
                             pitch: pitch,
+                            shoot: shoot,
                         };
                         let previous_state = PlayerState {
                             timestamp: timestamp,
                             position: player.get_position(&scene),
-                            vertical_velocity: player.get_vertical_velocity(&scene),
+                            velocity: player.get_velocity(&scene),
                             yaw: player.get_yaw(),
                             pitch: player.get_pitch(),
+                            shoot: player.controller.shoot,
                         };
-                        player.controller.previous_states.retain(|state| state.timestamp > timestamp);
+                        player
+                            .controller
+                            .previous_states
+                            .retain(|state| state.timestamp > timestamp);
                         player.controller.previous_states.push(previous_state);
                         player.controller.new_state = Some(new_state);
                     }
                 }
-                ActionMessage::DestroyBlock { index } => {
-                    let handle = scene.graph.handle_from_index(index as usize);
-                    // Empty tag means it is a block
-                    if handle.is_some() && scene.graph[handle].tag().is_empty() {
-                        if let Some(body) = scene.physics_binder.body_of(handle) {
-                            scene.remove_node(handle);
-                            scene.physics.remove_body(body.into());
-                        }
-                    }
+                PlayerEvent::DestroyBlock { index } => {
+                    self.destroy_block(engine, index);
                 }
-                ActionMessage::KillPlayer { index } => {
+                PlayerEvent::KillPlayer { index } => {
+                    let scene = &mut engine.scenes[self.scene];
                     if let Some(player) = self.get_player_by_index(index) {
                         player.remove_nodes(scene);
                     }
                     self.remove_player(index);
                 }
+                PlayerEvent::SpawnPlayer {
+                    index,
+                    state,
+                    current_player,
+                } => {
+                    rg3d::futures::executor::block_on(self.spawn_player(
+                        engine,
+                        index,
+                        PlayerState {
+                            position: Vector3::new(
+                                state.position.x,
+                                state.position.y,
+                                state.position.z,
+                            ),
+                            velocity: Vector3::new(
+                                state.velocity.x,
+                                state.velocity.y,
+                                state.velocity.z,
+                            ),
+                            yaw: state.yaw,
+                            pitch: state.pitch,
+                            shoot: state.shoot,
+                            ..Default::default()
+                        },
+                        current_player,
+                        network_manager,
+                    ));
+                }
                 _ => (),
             }
         }
 
+        let scene = &mut engine.scenes[self.scene];
         for player in self.players.iter_mut() {
             if cfg!(feature = "server") {
                 let position = player.get_position(&scene);
-                if let Ok(client_addr) = client_address.parse::<SocketAddr>() {
-                    let state_message = NetworkMessage::Action {
+                let velocity = player.get_velocity(&scene);
+                let state_message = NetworkMessage::PlayerEvent {
+                    index: player.index,
+                    event: PlayerEvent::UpdateState {
+                        timestamp: elapsed_time,
                         index: player.index,
-                        action: ActionMessage::UpdateState {
-                            timestamp: elapsed_time,
-                            index: player.index,
+                        position: SerializableVector {
                             x: position.x,
                             y: position.y,
                             z: position.z,
-                            velocity: player.get_vertical_velocity(&scene),
-                            yaw: player.get_yaw(),
-                            pitch: player.get_pitch(),
                         },
-                    };
+                        velocity: SerializableVector {
+                            x: velocity.x,
+                            y: velocity.y,
+                            z: velocity.z,
+                        },
+                        yaw: player.get_yaw(),
+                        pitch: player.get_pitch(),
+                        shoot: player.controller.shoot,
+                    },
+                };
 
-                    packet_sender
-                        .send(Packet::unreliable_sequenced(
-                            client_addr,
-                            serialize(&state_message).unwrap(),
-                            None,
-                        ))
-                        .unwrap();
-                }
+                network_manager.send_to_all_unreliably(&state_message, 0);
             }
 
+            // let scene = &mut engine.scenes[self.scene];
             player.update(
                 dt,
                 scene,
                 engine.resource_manager.clone(),
-                packet_sender,
-                client_address,
+                network_manager,
                 &self.sender,
             );
         }
@@ -234,20 +270,59 @@ impl Level {
         &mut self,
         engine: &mut GameEngine,
         index: u32,
-        position: Vector3<f32>,
+        state: PlayerState,
         current_player: bool,
+        network_manager: &mut NetworkManager,
     ) {
         let scene = &mut engine.scenes[self.scene];
 
-        let player = Player::new(
-            scene,
-            position,
-            engine.resource_manager.clone(),
-            current_player,
-            index,
-        )
-        .await;
+        if self.get_player_by_index(index).is_none() {
+            let player = Player::new(
+                scene,
+                state,
+                engine.resource_manager.clone(),
+                current_player,
+                index,
+            )
+            .await;
 
-        let _ = self.players.push(player);
+            self.players.push(player);
+
+            if current_player {
+                network_manager.player_index = Some(index);
+            }
+        }
+    }
+
+    // Call on clients
+    pub fn apply_state(&mut self, engine: &mut GameEngine, state: LevelState) {
+        for i in state.destroyed_blocks {
+            self.destroy_block(engine, i);
+        }
+    }
+
+    pub fn destroy_block(&mut self, engine: &mut GameEngine, index: u32) {
+        let scene = &mut engine.scenes[self.scene];
+
+        let handle = scene.graph.handle_from_index(index as usize);
+
+        if handle.is_some() && scene.graph.is_valid_handle(handle) {
+            if let Some(body) = scene.physics_binder.body_of(handle) {
+                scene.remove_node(handle);
+                scene.physics.remove_body(body.into());
+
+                if cfg!(feature = "server") {
+                    self.state.destroyed_blocks.push(index);
+                }
+            }
+        }
+    }
+
+    pub fn players(&self) -> &Vec<Player> {
+        &self.players
+    }
+
+    pub fn queue_event(&mut self, event: PlayerEvent) {
+        self.sender.send(event).unwrap();
     }
 }

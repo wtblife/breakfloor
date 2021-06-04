@@ -1,6 +1,4 @@
 use bincode::serialize;
-use crossbeam_channel::Sender;
-use laminar::Packet;
 use rg3d::{
     core::{
         algebra::{Isometry, Transform3, Translation3, UnitQuaternion, Vector3},
@@ -33,11 +31,15 @@ use rg3d::{
 use std::{
     net::SocketAddr,
     path::Path,
-    sync::{mpsc, Arc, RwLock},
+    sync::{
+        mpsc::{self, Sender},
+        Arc, RwLock,
+    },
 };
 
 use crate::{
-    message::{ActionMessage, NetworkMessage},
+    network_manager::{self, NetworkManager, NetworkMessage},
+    player_event::PlayerEvent,
     GameEngine,
 };
 
@@ -77,16 +79,32 @@ pub struct Player {
 pub struct PlayerState {
     pub timestamp: f32,
     pub position: Vector3<f32>,
-    pub vertical_velocity: f32,
+    pub velocity: Vector3<f32>,
     pub yaw: f32,
     pub pitch: f32,
+    pub shoot: bool,
 }
+
+// impl Serialize for PlayerState {
+//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+//     where
+//         S: Serializer,
+//     {
+//         let mut state = serializer.serialize_struct("PlayerState", 5)?;
+//         state.serialize_field("timestamp", &self.timestamp)?;
+//         state.serialize_field("position", &self.position)?;
+//         state.serialize_field("velocity", &self.velocity)?;
+//         state.serialize_field("yaw", &self.yaw)?;
+//         state.serialize_field("pitch", &self.yaw)?;
+
+//         state.end()
+//     }
+// }
 
 impl Player {
     pub async fn new(
         scene: &mut Scene,
-        // transform: Transform3<f32>
-        position: Vector3<f32>,
+        state: PlayerState,
         resource_manager: ResourceManager,
         current_player: bool,
         index: u32,
@@ -152,7 +170,8 @@ impl Player {
         let rigid_body = scene.physics.add_body(
             RigidBodyBuilder::new_dynamic()
                 .lock_rotations() // We don't want a bot to tilt.
-                .translation(position.x, position.y, position.z) // Set desired position.
+                .translation(state.position.x, state.position.y, state.position.z) // Set desired position.
+                .linvel(state.velocity.x, state.velocity.y, state.velocity.z)
                 .gravity_scale(GRAVITY_SCALE)
                 .build(),
         );
@@ -178,7 +197,12 @@ impl Player {
             recoil_offset: Default::default(),
             recoil_target_offset: Default::default(),
             index,
-            controller: Default::default(),
+            controller: PlayerController {
+                shoot: state.shoot,
+                yaw: state.yaw,
+                pitch: state.pitch,
+                ..Default::default()
+            },
         }
     }
 
@@ -187,9 +211,10 @@ impl Player {
         dt: f32,
         scene: &mut Scene,
         resource_manager: ResourceManager,
-        packet_sender: &Sender<Packet>,
-        client_address: &mut String,
-        action_sender: &mpsc::Sender<ActionMessage>,
+        network_manager: &mut NetworkManager,
+        event_sender: &Sender<PlayerEvent>,
+        // client_address: &mut String,
+        // action_sender: &mpsc::Sender<PlayerEvent>,
     ) {
         self.shot_timer = (self.shot_timer - dt).max(0.0);
 
@@ -272,13 +297,7 @@ impl Player {
         );
 
         if self.controller.shoot {
-            self.shoot_weapon(
-                scene,
-                resource_manager,
-                packet_sender,
-                client_address,
-                action_sender,
-            );
+            self.shoot_weapon(scene, resource_manager, network_manager, &event_sender);
         }
     }
 
@@ -287,21 +306,11 @@ impl Player {
             self.controller.previous_states.retain(|previous_state| {
                 let matches = previous_state.timestamp == new_state.timestamp;
                 if matches {
-                    // TODO: Should probably keep multiple timestamped/indexed previous states and make sure the same state is being matched
                     let distance = new_state.position.sqr_distance(&previous_state.position);
-
                     let max_distance_tolerated = MOVEMENT_SPEED;
-                    let error = (distance / max_distance_tolerated).clamp(0.0, 1.0);
+                    let correction_percentage = (distance / max_distance_tolerated).clamp(0.0, 1.0);
 
-                    // let max_change = Vector3::new(
-                    //     new_state.velocity.x,
-                    //     new_state.velocity.y,
-                    //     new_state.velocity.z,
-                    // );
-                    // let new_pos = new_state.position + max_change;
-                    // let distance = new_pos.sqr_distance(&self.controller.previous_state.position);
-
-                    if error > f32::EPSILON {
+                    if correction_percentage > f32::EPSILON {
                         let mut pos = *body.position();
                         pos = pos.lerp_slerp(
                             &Isometry::from_parts(
@@ -312,14 +321,11 @@ impl Player {
                                 ),
                                 pos.rotation,
                             ),
-                            error,
+                            correction_percentage,
                         );
                         body.set_position(pos, true);
 
-                        println!(
-                            "interpolated new position based on error of {}: {:?}",
-                            error, pos
-                        );
+                        println!("corrected position by {}: ", correction_percentage);
                     }
                 }
 
@@ -336,9 +342,8 @@ impl Player {
         &mut self,
         scene: &mut Scene,
         resource_manager: ResourceManager,
-        packet_sender: &Sender<Packet>,
-        client_address: &mut String,
-        action_sender: &mpsc::Sender<ActionMessage>,
+        network_manager: &mut NetworkManager,
+        event_sender: &Sender<PlayerEvent>,
     ) {
         if self.can_shoot() {
             self.shot_timer = 0.1;
@@ -370,8 +375,6 @@ impl Player {
             let trail_length = if let Some(intersection) =
                 intersections.iter().find(|i| i.collider != self.collider)
             {
-                // TODO: Move this to a network module that can handle getting the address and sending etc
-
                 let collider = scene
                     .physics
                     .colliders
@@ -411,25 +414,16 @@ impl Player {
                     }
 
                     if destroy_block {
-                        if let Ok(client_addr) = client_address.parse::<SocketAddr>() {
-                            let message = NetworkMessage::Action {
-                                index: node_handle.index(), // TODO: Probably need a different kind of message for GameMessage and PlayerMessage?
-                                action: ActionMessage::DestroyBlock {
-                                    index: node_handle.index(),
-                                },
-                            };
+                        let event = PlayerEvent::DestroyBlock {
+                            index: node_handle.index(),
+                        };
+                        let message = NetworkMessage::PlayerEvent {
+                            index: node_handle.index(),
+                            event: event,
+                        };
 
-                            packet_sender
-                                .send(Packet::reliable_ordered(
-                                    client_addr,
-                                    serialize(&message).unwrap(),
-                                    None,
-                                ))
-                                .unwrap();
-                        }
-
-                        scene.remove_node(node_handle);
-                        scene.physics.remove_body(body.into());
+                        network_manager.send_to_all_unreliably(&message, 2);
+                        event_sender.send(event).unwrap();
                     }
 
                     // TODO: Do something like send gamemessage KillPlayer(collideer) which uses level.get_player_by_collider to get index and then sends PlayerMessage KillPlayer(index)
@@ -485,10 +479,10 @@ impl Player {
         }
     }
 
-    pub fn get_vertical_velocity(&self, scene: &Scene) -> f32 {
+    pub fn get_velocity(&self, scene: &Scene) -> Vector3<f32> {
         let body = scene.physics.bodies.get(self.rigid_body.into()).unwrap();
 
-        body.linvel().y
+        *body.linvel()
     }
 
     pub fn get_position(&self, scene: &Scene) -> Vector3<f32> {
