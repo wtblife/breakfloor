@@ -307,7 +307,7 @@ impl Player {
                 let matches = previous_state.timestamp == new_state.timestamp;
                 if matches {
                     let distance = new_state.position.sqr_distance(&previous_state.position);
-                    let max_distance_tolerated = MOVEMENT_SPEED;
+                    let max_distance_tolerated = MOVEMENT_SPEED * 2.0;
                     let correction_percentage = (distance / max_distance_tolerated).clamp(0.0, 1.0);
 
                     if correction_percentage > f32::EPSILON {
@@ -422,7 +422,8 @@ impl Player {
                             event: event,
                         };
 
-                        network_manager.send_to_all_unreliably(&message, 2);
+                        // network_manager.send_to_all_unreliably(&message, 2);
+                        network_manager.send_to_all_reliably(&message);
                         event_sender.send(event).unwrap();
                     }
 

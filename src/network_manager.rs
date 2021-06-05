@@ -37,7 +37,8 @@ impl NetworkManager {
         let mut socket;
 
         let config = Config {
-            heartbeat_interval: Some(Duration::from_millis(1000)),
+            heartbeat_interval: Some(Duration::from_millis(500)),
+            idle_connection_timeout: Duration::from_millis(1500),
             ..Default::default()
         };
 
@@ -49,7 +50,7 @@ impl NetworkManager {
 
         let (sender, receiver) = (socket.get_packet_sender(), socket.get_event_receiver());
 
-        thread::spawn(move || socket.start_polling_with_duration(None));
+        thread::spawn(move || socket.start_polling());
 
         if !cfg!(feature = "server") {
             sender
@@ -88,7 +89,7 @@ impl NetworkManager {
                                                 // Validate shoot command
                                                 if let Some(player) = player {
                                                     if !active || player.can_shoot() {
-                                                        self.send_to_all_unreliably(&message, 3);
+                                                        self.send_to_all_reliably(&message);
                                                     }
                                                 }
                                             }
@@ -97,8 +98,25 @@ impl NetworkManager {
                                         PlayerEvent::DestroyBlock { index } => {
                                             level.queue_event(event);
                                         }
-                                        // Handles all client predicted events (move events, etc) and player spawn
-                                        _ => {
+                                        PlayerEvent::UpdateState {
+                                            timestamp,
+                                            index,
+                                            position,
+                                            velocity,
+                                            yaw,
+                                            pitch,
+                                            shoot,
+                                        } => {
+                                            level.queue_event(event);
+                                        }
+                                        // Handles all client predicted events (move events, etc) and player spawn.
+                                        PlayerEvent::LookAround { .. }
+                                        | PlayerEvent::MoveBackward { .. }
+                                        | PlayerEvent::MoveForward { .. }
+                                        | PlayerEvent::MoveLeft { .. }
+                                        | PlayerEvent::MoveRight { .. }
+                                        | PlayerEvent::MoveUp { .. }
+                                        | PlayerEvent::SpawnPlayer { .. } => {
                                             // If event isn't for active player then it hasn't been applied yet. This includes server.
                                             if self
                                                 .player_index
@@ -119,6 +137,8 @@ impl NetworkManager {
                                                 );
                                             }
                                         }
+                                        PlayerEvent::Jump { .. }
+                                        | PlayerEvent::KillPlayer { .. } => (),
                                     }
                                 }
                             }
@@ -131,6 +151,7 @@ impl NetworkManager {
                                                 if let Some(index) =
                                                     self.get_index_for_address(packet.addr())
                                                 {
+                                                    // Send events to spawn existing players for player that joined
                                                     for player in level.players().iter() {
                                                         let scene = &mut engine.scenes[level.scene];
                                                         let position = player.get_position(scene);
@@ -163,8 +184,10 @@ impl NetworkManager {
                                                             &message,
                                                         );
                                                     }
+
+                                                    // Send spawn player event to all other players
                                                     let position = SerializableVector {
-                                                        x: 2.0 * (-1.0f32).powi(index as i32),
+                                                        x: 1.5 + 3.0 * (-1.0f32).powi(index as i32),
                                                         y: 1.0,
                                                         z: 0.0,
                                                     };
@@ -185,6 +208,7 @@ impl NetworkManager {
                                                         },
                                                     );
 
+                                                    // Send spawn player event to player (with current player true for setting camera)
                                                     let event = PlayerEvent::SpawnPlayer {
                                                         index: index,
                                                         state: SerializablePlayerState {
@@ -229,21 +253,22 @@ impl NetworkManager {
                 }
                 SocketEvent::Connect(address) => {
                     if game.server {
-                        // Get the highest player index or the last player index and add 1
-                        self.highest_player_index = *self
-                            .connections
-                            .iter()
-                            .map(|connection| connection.player_index)
-                            .max()
-                            .get_or_insert(self.highest_player_index)
-                            + 1;
-
-                        self.connections.push(PlayerConnection {
-                            socket_addr: address,
-                            player_index: self.highest_player_index,
-                        });
-
                         if let Some(level) = &mut game.level {
+                            // Get the highest player index OR the last player index and add 1
+                            self.highest_player_index = *self
+                                .connections
+                                .iter()
+                                .map(|connection| connection.player_index)
+                                .max()
+                                .get_or_insert(self.highest_player_index)
+                                + 1;
+
+                            // Remove previous connection if it didn't disconnect for some reason
+
+                            self.connections.push(PlayerConnection {
+                                socket_addr: address,
+                                player_index: self.highest_player_index,
+                            });
                             // Send message to load level
                             self.send_to_address_reliably(
                                 address,
@@ -263,13 +288,15 @@ impl NetworkManager {
                     println!("currently connected: {:?}", self.connections);
                 }
                 SocketEvent::Disconnect(address) => {
-                    if let Some(level) = &mut game.level {
-                        if let Some(index) = self.get_index_for_address(address) {
-                            level.remove_player(index);
+                    if game.server {
+                        if let Some(level) = &mut game.level {
+                            if let Some(index) = self.get_index_for_address(address) {
+                                level.remove_player(engine, index);
+                            }
                         }
+                        self.connections
+                            .retain(|connection| connection.socket_addr != address);
                     }
-                    self.connections
-                        .retain(|connection| connection.socket_addr != address);
 
                     println!("{} disconnected", address.to_string());
                     println!("currently connected: {:?}", self.connections);

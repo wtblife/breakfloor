@@ -183,7 +183,7 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                                 };
 
                                 // Should active = false be reliable since it's only sent once?
-                                network_manager.send_to_server_unreliably(&message, 2);
+                                network_manager.send_to_server_unreliably(&message, 0);
                                 level.queue_event(action);
                             }
                             VirtualKeyCode::S => {
@@ -197,7 +197,7 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                                     event: action,
                                 };
 
-                                network_manager.send_to_server_unreliably(&message, 2);
+                                network_manager.send_to_server_unreliably(&message, 0);
                                 level.queue_event(action);
                             }
                             VirtualKeyCode::A => {
@@ -210,7 +210,7 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                                     event: action,
                                 };
 
-                                network_manager.send_to_server_unreliably(&message, 2);
+                                network_manager.send_to_server_unreliably(&message, 0);
                                 level.queue_event(action);
                             }
                             VirtualKeyCode::D => {
@@ -223,7 +223,7 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                                     event: action,
                                 };
 
-                                network_manager.send_to_server_unreliably(&message, 2);
+                                network_manager.send_to_server_unreliably(&message, 0);
                                 level.queue_event(action);
                             }
                             VirtualKeyCode::Space => {
@@ -236,7 +236,7 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                                     event: action,
                                 };
 
-                                network_manager.send_to_server_unreliably(&message, 2);
+                                network_manager.send_to_server_unreliably(&message, 0);
                                 level.queue_event(action);
                             }
                             _ => (),
@@ -253,7 +253,7 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                             },
                         };
 
-                        network_manager.send_to_server_unreliably(&message, 2);
+                        network_manager.send_to_server_reliably(&message);
                     }
                 }
                 _ => {}

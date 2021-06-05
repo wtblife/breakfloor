@@ -93,7 +93,12 @@ impl Level {
         self.players.iter_mut().find(|p| p.collider == collider)
     }
 
-    pub fn remove_player(&mut self, index: u32) {
+    pub fn remove_player(&mut self, engine: &mut GameEngine, index: u32) {
+        let scene = &mut engine.scenes[self.scene];
+        if let Some(player) = self.get_player_by_index(index) {
+            player.remove_nodes(scene);
+        }
+
         self.players.retain(|p| p.index != index)
     }
 
@@ -105,7 +110,11 @@ impl Level {
         elapsed_time: f32,
     ) {
         while let Ok(action) = self.receiver.try_recv() {
-            println!("player event received: {:?}", action);
+            if let PlayerEvent::UpdateState { .. } = action {
+            } else {
+                println!("player event received: {:?}", action);
+            };
+
             match action {
                 PlayerEvent::ShootWeapon { index, active } => {
                     if let Some(player) = self.get_player_by_index(index) {
@@ -159,7 +168,6 @@ impl Level {
                 } => {
                     let scene = &mut engine.scenes[self.scene];
                     if let Some(player) = self.get_player_by_index(index) {
-                        let x = position.x;
                         let new_state = PlayerState {
                             timestamp: timestamp,
                             position: Vector3::new(position.x, position.y, position.z),
@@ -188,11 +196,7 @@ impl Level {
                     self.destroy_block(engine, index);
                 }
                 PlayerEvent::KillPlayer { index } => {
-                    let scene = &mut engine.scenes[self.scene];
-                    if let Some(player) = self.get_player_by_index(index) {
-                        player.remove_nodes(scene);
-                    }
-                    self.remove_player(index);
+                    self.remove_player(engine, index);
                 }
                 PlayerEvent::SpawnPlayer {
                     index,
