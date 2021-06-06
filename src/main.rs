@@ -13,7 +13,6 @@ use crate::{
     player::Player,
     player_event::PlayerEvent,
 };
-use bincode::{deserialize, serialize};
 use crossbeam_channel::{Receiver, Sender};
 use laminar::{Config, ErrorKind, Packet, Socket, SocketEvent};
 use player::PlayerState;
@@ -44,6 +43,7 @@ use rg3d::{
     },
     window::{Fullscreen, WindowBuilder},
 };
+use serde::Deserialize;
 use std::{
     fmt,
     net::{SocketAddr, ToSocketAddrs},
@@ -61,23 +61,52 @@ use std::{
 // provides a way to extend UI with custom nodes and messages.
 type GameEngine = Engine<(), StubNode>;
 
-// Our game logic will be updated at 60 Hz rate.
+use std::error::Error;
+use std::fs::File;
+use std::io::BufReader;
+
+#[derive(Default, Deserialize, Debug)]
+pub struct Settings {
+    look_sensitivity: f32,
+    vsync: bool,
+    fullscreen: bool,
+}
+
+fn read_settings_from_file<P: AsRef<Path>>(path: P) -> Result<Settings, Box<dyn Error>> {
+    // Open the file in read-only mode with buffer.
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+
+    // Read the JSON contents of the file as an instance of `User`.
+    let u = serde_json::from_reader(reader)?;
+
+    // Return the `User`.
+    Ok(u)
+}
 
 fn main() {
     const SERVER: bool = cfg!(feature = "server");
+    // Our game logic will be updated at 60 Hz rate.
     const TIMESTEP: f32 = 1.0 / 60.0;
+
+    let settings: Settings = read_settings_from_file("settings.json").unwrap_or_default();
+    let fullscreen = if settings.fullscreen {
+        Some(Fullscreen::Borderless(None))
+    } else {
+        None
+    };
 
     // Configure main window first.
     let window_builder = WindowBuilder::new()
         .with_visible(!SERVER)
-        .with_title("Breakfloor");
-    // .with_fullscreen(Some(Fullscreen::Borderless(None)));
+        .with_title("Breakfloor")
+        .with_fullscreen(fullscreen);
 
     // Create event loop that will be used to "listen" events from the OS.
     let event_loop = EventLoop::new();
 
     // Finally create an instance of the engine.
-    let mut engine = GameEngine::new(window_builder, &event_loop, true).unwrap();
+    let mut engine = GameEngine::new(window_builder, &event_loop, settings.vsync).unwrap();
 
     engine
         .renderer
@@ -102,7 +131,7 @@ fn main() {
     let mut cursor_in_window = true;
 
     let mut network_manager = NetworkManager::new();
-    let mut game = rg3d::futures::executor::block_on(Game::new(&mut engine));
+    let mut game = rg3d::futures::executor::block_on(Game::new(&mut engine, settings));
 
     event_loop.run(move |event, _, control_flow| {
         network_manager.handle_events(&mut engine, &mut game);
@@ -260,7 +289,7 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
             },
             Event::DeviceEvent { event, .. } => {
                 if let DeviceEvent::MouseMotion { delta } = event {
-                    let mouse_sens = 0.5;
+                    let mouse_sens = game.settings.look_sensitivity;
 
                     let action = PlayerEvent::LookAround {
                         index: player_index,

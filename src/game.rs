@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     level::{Level, LevelState},
     network_manager::{NetworkManager, NetworkMessage},
-    GameEngine,
+    GameEngine, Settings,
 };
 
 pub struct Game {
@@ -13,10 +13,11 @@ pub struct Game {
     pub event_sender: Sender<GameEvent>,
     pub event_receiver: Receiver<GameEvent>,
     pub server: bool,
+    pub settings: Settings,
 }
 
 impl Game {
-    pub async fn new(engine: &mut GameEngine) -> Self {
+    pub async fn new(engine: &mut GameEngine, settings: Settings) -> Self {
         let (event_sender, event_receiver) = mpsc::channel();
 
         let server = cfg!(feature = "server");
@@ -36,10 +37,11 @@ impl Game {
         }
 
         Self {
-            level: level,
+            level,
             event_sender,
             event_receiver,
-            server: server,
+            server,
+            settings,
         }
     }
 
@@ -72,7 +74,7 @@ impl Game {
                     });
                 }
                 // Only received on server
-                GameEvent::Joined => {}
+                GameEvent::Joined => {},
             }
         }
 

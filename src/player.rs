@@ -38,6 +38,7 @@ use std::{
 };
 
 use crate::{
+    level::Level,
     network_manager::{self, NetworkManager, NetworkMessage},
     player_event::PlayerEvent,
     GameEngine,
@@ -110,15 +111,15 @@ impl Player {
         index: u32,
     ) -> Self {
         let model_resource = resource_manager
-            .request_model("data/models/shooting.fbx")
+            .request_model("data/models/shooting.rgs")
             .await
             .unwrap();
-        let first_person_model = model_resource.instantiate_geometry(scene);
+        let first_person_model = model_resource.instantiate(scene).root;
 
-        let third_person_model = model_resource.instantiate_geometry(scene);
+        let third_person_model = model_resource.instantiate(scene).root;
 
-        let camera_pos = Vector3::new(0.0, 0.37, 0.0);
-        let model_pos = Vector3::new(0.0, -0.82, -0.07);
+        let camera_pos = Vector3::new(0.0, 0.37, 0.00);
+        let model_pos = Vector3::new(0.0, -0.82, -0.08);
 
         scene.graph[first_person_model]
             .local_transform_mut()
@@ -131,22 +132,19 @@ impl Player {
             .set_scale(Vector3::new(0.1, 0.1, 0.1));
 
         // Show models for first person or third person
-        let soldier = scene.graph.find_by_name(first_person_model, "soldier_LOD0");
-        scene.graph[soldier].set_visibility(!current_player);
         scene.graph[third_person_model].set_visibility(!current_player);
         scene.graph[first_person_model].set_visibility(current_player);
 
         // Workaround for gun getting culled
-        let gun = scene.graph.find_by_name(first_person_model, "gun_LOD0");
-        scene.graph[gun]
-            .local_transform_mut()
-            .set_position(Vector3::new(0.0, 0.82, 0.5));
+        // let gun = scene.graph.find_by_name(first_person_model, "gun_LOD0");
+        // scene.graph[gun]
+        //     .local_transform_mut()
+        //     .set_position(Vector3::new(0.0, 0.82, 0.5));
 
         let spine = scene.graph.find_by_name(third_person_model, "Bind_Spine");
 
-        let weapon_pivot = scene
-            .graph
-            .find_by_name(first_person_model, "Bind_LeftHandIndex2");
+        // TODO: Need separate pivots for third or first person to make shots appear from correct position in third person
+        let weapon_pivot = scene.graph.find_by_name(first_person_model, "Barrel");
 
         let camera = CameraBuilder::new(
             BaseBuilder::new()
@@ -325,7 +323,7 @@ impl Player {
                         );
                         body.set_position(pos, true);
 
-                        println!("corrected position by {}: ", correction_percentage);
+                        // println!("corrected position by {}: ", correction_percentage);
                     }
                 }
 
@@ -599,17 +597,17 @@ fn create_shot_trail(
         .with_local_position(origin)
         // Scale the trail in XZ plane to make it thin, and apply `trail_length` scale on Y axis
         // to stretch is out.
-        .with_local_scale(Vector3::new(0.01, 0.01, trail_length))
+        .with_local_scale(Vector3::new(0.009, 0.009, trail_length))
         // Rotate the trail along given `direction`
         .with_local_rotation(UnitQuaternion::face_towards(&direction, &Vector3::y()))
         .build();
 
     // Create unit cylinder with caps that faces toward Z axis.
     let shape = Arc::new(RwLock::new(SurfaceSharedData::make_cylinder(
-        6,     // Count of sides
-        1.0,   // Radius
-        1.0,   // Height
-        false, // No caps are needed.
+        6,    // Count of sides
+        1.0,  // Radius
+        1.0,  // Height
+        true, // No caps are needed.
         // Rotate vertical cylinder around X axis to make it face towards Z axis
         UnitQuaternion::from_axis_angle(&Vector3::x_axis(), 90.0f32.to_radians()).to_homogeneous(),
     )));

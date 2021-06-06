@@ -130,7 +130,7 @@
 [INFO]: Shader FXAAShader linked!
 
 [INFO]: Starting resolve...
-[INFO]: Texture "textures/Block.png" is loaded in 786.6µs!
+[INFO]: Texture "textures/Block.png" is loaded in 521.5µs!
 [INFO]: Resolving graph...
 [INFO]: Original handles resolved!
 [INFO]: Checking integrity...
@@ -141,35 +141,42 @@
 [INFO]: Resolve succeeded!
 [INFO]: Model "data/levels/block_scene.rgs" is loaded!
 [INFO]: Resource data/levels/block_scene.rgs was successfully embedded into physics world!
-[INFO]: Texture "textures/floor.jpg" is loaded in 26.2936ms!
+[INFO]: Texture "textures/floor.jpg" is loaded in 25.1675ms!
 [INFO]: Trying to load "data/models/shooting.fbx"
 [ERROR]: Unable to load texture "data/textures/gun_dDo_n.tga"! Reason Io(Os { code: 2, kind: NotFound, message: "The system cannot find the file specified." })
 [ERROR]: Unable to load texture "data/textures/soldier_dDo_n.tga"! Reason Io(Os { code: 2, kind: NotFound, message: "The system cannot find the file specified." })
-[INFO]: Texture "data/textures/gun_dDo_d.tga" is loaded in 5.746ms!
-[INFO]: FBX "data/models/shooting.fbx" loaded in 98 ms
-	- Parsing - 72 ms
-	- DOM Prepare - 3 ms
-	- Conversion - 22 ms
-[INFO]: Texture "data/textures/soldier_dDo_d.tga" is loaded in 21.518ms!
+[INFO]: Texture "data/textures/gun_dDo_d.tga" is loaded in 7.1547ms!
+[INFO]: FBX "data/models/shooting.fbx" loaded in 116 ms
+	- Parsing - 90 ms
+	- DOM Prepare - 7 ms
+	- Conversion - 18 ms
 [INFO]: Model "data/models/shooting.fbx" is loaded!
-[INFO]: Resource data/models/shooting.fbx was successfully embedded into physics world!
-[INFO]: Resource data/models/shooting.fbx was successfully embedded into physics world!
-[INFO]: Texture "data/textures/skybox/right.jpg" is loaded in 24.4027ms!
-[INFO]: Texture "data/textures/skybox/left.jpg" is loaded in 28.2596ms!
-[INFO]: Texture "data/textures/skybox/down.jpg" is loaded in 30.6478ms!
-[INFO]: Texture "data/textures/skybox/back.jpg" is loaded in 30.7834ms!
-[INFO]: Texture "data/textures/skybox/up.jpg" is loaded in 30.7661ms!
-[INFO]: Texture "data/textures/skybox/front.jpg" is loaded in 31.1365ms!
-[INFO]: Resource data/models/shooting.fbx was successfully embedded into physics world!
-[INFO]: Resource data/models/shooting.fbx was successfully embedded into physics world!
-[INFO]: Resource data/models/shooting.fbx was successfully embedded into physics world!
-[INFO]: Resource data/models/shooting.fbx was successfully embedded into physics world!
+[INFO]: Starting resolve...
+[INFO]: Resolving graph...
+[INFO]: Original handles resolved!
+[INFO]: Checking integrity...
+[INFO]: Integrity restored for 1 instances! 0 new nodes were added!
+[INFO]: Graph resolved successfully!
+[INFO]: Resolving animations...
+[INFO]: Animations resolved successfully!
+[INFO]: Resolve succeeded!
+[INFO]: Model "data/models/shooting.rgs" is loaded!
+[INFO]: Resource data/models/shooting.rgs was successfully embedded into physics world!
+[INFO]: Resource data/models/shooting.rgs was successfully embedded into physics world!
+[INFO]: Texture "data/textures/soldier_dDo_d.tga" is loaded in 25.3267ms!
+[INFO]: Texture "data/textures/skybox/front.jpg" is loaded in 35.1374ms!
+[INFO]: Texture "data/textures/skybox/left.jpg" is loaded in 37.1989ms!
+[INFO]: Texture "data/textures/skybox/back.jpg" is loaded in 37.5291ms!
+[INFO]: Texture "data/textures/skybox/right.jpg" is loaded in 38.8811ms!
+[INFO]: Texture "data/textures/skybox/up.jpg" is loaded in 38.9358ms!
+[INFO]: Texture "data/textures/skybox/down.jpg" is loaded in 51.2784ms!
 [INFO]: Texture resource "data/textures/skybox/front.jpg" destroyed because it not used anymore!
 [INFO]: Texture resource "data/textures/skybox/back.jpg" destroyed because it not used anymore!
 [INFO]: Texture resource "data/textures/skybox/left.jpg" destroyed because it not used anymore!
 [INFO]: Texture resource "data/textures/skybox/right.jpg" destroyed because it not used anymore!
 [INFO]: Texture resource "data/textures/skybox/up.jpg" destroyed because it not used anymore!
 [INFO]: Texture resource "data/textures/skybox/down.jpg" destroyed because it not used anymore!
+[INFO]: Model resource "data/models/shooting.rgs" destroyed because it not used anymore!
 [INFO]: Model resource "data/models/shooting.fbx" destroyed because it not used anymore!
 [INFO]: Texture resource "data/textures/gun_dDo_d.tga" destroyed because it not used anymore!
 [INFO]: Texture resource "data/textures/soldier_dDo_d.tga" destroyed because it not used anymore!

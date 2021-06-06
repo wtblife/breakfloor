@@ -110,10 +110,10 @@ impl Level {
         elapsed_time: f32,
     ) {
         while let Ok(action) = self.receiver.try_recv() {
-            if let PlayerEvent::UpdateState { .. } = action {
-            } else {
-                println!("player event received: {:?}", action);
-            };
+            // if let PlayerEvent::UpdateState { .. } = action {
+            // } else {
+            //     println!("player event received: {:?}", action);
+            // };
 
             match action {
                 PlayerEvent::ShootWeapon { index, active } => {
@@ -298,7 +298,7 @@ impl Level {
         }
     }
 
-    // Call on clients
+    // Call on clients to load level state
     pub fn apply_state(&mut self, engine: &mut GameEngine, state: LevelState) {
         for i in state.destroyed_blocks {
             self.destroy_block(engine, i);

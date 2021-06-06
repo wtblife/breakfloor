@@ -141,6 +141,7 @@ dependencies = [
  "laminar",
  "rg3d",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

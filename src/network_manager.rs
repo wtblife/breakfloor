@@ -137,8 +137,10 @@ impl NetworkManager {
                                                 );
                                             }
                                         }
-                                        PlayerEvent::Jump { .. }
-                                        | PlayerEvent::KillPlayer { .. } => (),
+                                        PlayerEvent::Jump { .. } => (),
+                                        PlayerEvent::KillPlayer { index } => {
+                                            level.queue_event(event);
+                                        }
                                     }
                                 }
                             }
@@ -291,7 +293,15 @@ impl NetworkManager {
                     if game.server {
                         if let Some(level) = &mut game.level {
                             if let Some(index) = self.get_index_for_address(address) {
+                                let event = PlayerEvent::KillPlayer { index: index };
                                 level.remove_player(engine, index);
+                                self.send_to_all_except_address_reliably(
+                                    address,
+                                    &NetworkMessage::PlayerEvent {
+                                        index: index,
+                                        event: event,
+                                    },
+                                );
                             }
                         }
                         self.connections
