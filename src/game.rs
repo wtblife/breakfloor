@@ -23,7 +23,7 @@ impl Game {
         let server = cfg!(feature = "server");
 
         let mut level = None;
-        if server {
+        #[cfg(feature = "server")] {
             level = Some(
                 Level::new(
                     engine,
@@ -45,15 +45,6 @@ impl Game {
         }
     }
 
-    // pub async fn load_level() {
-    //     let mut level = rg3d::futures::executor::block_on(Level::new(
-    //         &mut engine,
-    //         "block_scene",
-    //         action_receiver,
-    //         action_sender.clone(),
-    //     ));
-    // }
-
     pub fn update(
         &mut self,
         engine: &mut GameEngine,
@@ -63,7 +54,7 @@ impl Game {
     ) {
         while let Ok(event) = self.event_receiver.try_recv() {
             match event {
-                GameEvent::Connected => {}
+                GameEvent::Connected => (),
                 GameEvent::LoadLevel { level, state } => {
                     let level =
                         rg3d::futures::executor::block_on(Level::new(engine, &level, state));
@@ -74,7 +65,8 @@ impl Game {
                     });
                 }
                 // Only received on server
-                GameEvent::Joined => {},
+                GameEvent::Joined => (),
+                GameEvent::Disconnected => (),
             }
         }
 
@@ -91,6 +83,7 @@ impl Game {
 #[derive(Debug, Serialize, Deserialize)]
 pub enum GameEvent {
     Connected,
+    Disconnected,
     LoadLevel {
         level: String, // Sent from server to tell client what to load
         state: LevelState,

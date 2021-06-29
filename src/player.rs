@@ -8,7 +8,7 @@ use rg3d::{
         numeric_range::NumericRange,
         pool::Handle,
     },
-    engine::resource_manager::ResourceManager,
+    engine::resource_manager::{ResourceManager, SharedSoundBuffer},
     event::ElementState,
     physics::{
         dynamics::{RigidBody, RigidBodyBuilder},
@@ -26,6 +26,10 @@ use rg3d::{
         physics::RayCastOptions,
         transform::TransformBuilder,
         ColliderHandle, RigidBodyHandle, Scene,
+    },
+    sound::{
+        buffer::SoundBuffer,
+        source::{generic::GenericSourceBuilder, spatial::SpatialSourceBuilder, Status},
     },
 };
 use std::{
@@ -74,6 +78,9 @@ pub struct Player {
     recoil_target_offset: Vector3<f32>,
     pub index: u32,
     pub controller: PlayerController,
+    third_person_model: Handle<Node>,
+    first_person_model: Handle<Node>,
+    firing_sound_buffer: SharedSoundBuffer,
 }
 
 #[derive(Default)]
@@ -110,10 +117,12 @@ impl Player {
         current_player: bool,
         index: u32,
     ) -> Self {
+        // TODO: Resources should only need to be loaded once and shared among players
         let model_resource = resource_manager
             .request_model("data/models/shooting.rgs")
             .await
             .unwrap();
+
         let first_person_model = model_resource.instantiate(scene).root;
 
         let third_person_model = model_resource.instantiate(scene).root;
@@ -156,7 +165,7 @@ impl Player {
                 ),
         )
         .enabled(current_player)
-        .with_skybox(create_skybox(resource_manager).await)
+        .with_skybox(create_skybox(resource_manager.clone()).await)
         .build(&mut scene.graph);
 
         let pivot = BaseBuilder::new()
@@ -184,6 +193,11 @@ impl Player {
         // with the transform of the rigid body.
         scene.physics_binder.bind(pivot, rigid_body);
 
+        let firing_sound_buffer = resource_manager
+            .request_sound_buffer("data/sounds/laser4.ogg", false)
+            .await
+            .unwrap();
+
         Self {
             pivot,
             weapon_pivot,
@@ -201,7 +215,19 @@ impl Player {
                 pitch: state.pitch,
                 ..Default::default()
             },
+            first_person_model,
+            third_person_model,
+            firing_sound_buffer,
         }
+    }
+
+    pub fn set_camera(&self, scene: &mut Scene, enabled: bool) {
+        scene.graph[self.camera]
+            .as_camera_mut()
+            .set_enabled(enabled);
+
+        scene.graph[self.third_person_model].set_visibility(!enabled);
+        scene.graph[self.first_person_model].set_visibility(enabled);
     }
 
     pub fn update(
@@ -246,6 +272,9 @@ impl Player {
             .get_mut(self.rigid_body.into())
             .unwrap();
 
+        #[cfg(not(feature = "server"))]
+        self.interpolate_state(body, dt);
+
         // Keep only vertical velocity, and drop horizontal.
         let mut velocity = Vector3::new(0.0, body.linvel().y, 0.0);
 
@@ -282,10 +311,7 @@ impl Player {
 
         body.set_position(position, true);
 
-        self.interpolate_state(body, dt);
-
         // Set pitch for the camera. These lines responsible for up-down camera rotation.
-
         scene.graph[self.camera].local_transform_mut().set_rotation(
             UnitQuaternion::from_axis_angle(&Vector3::x_axis(), self.controller.pitch.to_radians()),
         );
@@ -297,15 +323,25 @@ impl Player {
         if self.controller.shoot {
             self.shoot_weapon(scene, resource_manager, network_manager, &event_sender);
         }
+
+        // Update listener position if camera is active
+        let camera = &scene.graph[self.camera];
+        let mut ctx = scene.sound_context.state();
+        let listener = ctx.listener_mut();
+        if camera.as_camera().is_enabled() {
+            listener.set_position(camera.global_position());
+            listener.set_orientation_lh(camera.look_vector(), camera.up_vector());
+        }
     }
 
+    #[cfg(not(feature = "server"))]
     fn interpolate_state(&mut self, body: &mut RigidBody, dt: f32) {
         if let Some(new_state) = self.controller.new_state.take() {
             self.controller.previous_states.retain(|previous_state| {
                 let matches = previous_state.timestamp == new_state.timestamp;
                 if matches {
                     let distance = new_state.position.sqr_distance(&previous_state.position);
-                    let max_distance_tolerated = MOVEMENT_SPEED * 2.0;
+                    let max_distance_tolerated = MOVEMENT_SPEED;
                     let correction_percentage = (distance / max_distance_tolerated).clamp(0.0, 1.0);
 
                     if correction_percentage > f32::EPSILON {
@@ -323,8 +359,26 @@ impl Player {
                         );
                         body.set_position(pos, true);
 
-                        // println!("corrected position by {}: ", correction_percentage);
+                        // println!("corrected position by: {}", correction_percentage);
                     }
+
+                    let velocity_difference =
+                        (new_state.velocity.y - previous_state.velocity.y).abs();
+                    let max_difference_tolerated = 9.8 * GRAVITY_SCALE;
+                    let velocity_correction =
+                        (velocity_difference / max_difference_tolerated).clamp(0.0, 1.0);
+
+                    if velocity_correction > f32::EPSILON {
+                        let new_vertical_velocity =
+                            lerp(body.linvel().y, new_state.velocity.y, velocity_correction);
+
+                        let velocity = Vector3::new(0.0, new_vertical_velocity, 0.0);
+
+                        body.set_linvel(velocity, true);
+                        // println!("corrected velocity by: {}", velocity_correction);
+                    }
+
+                    // TODO: interpolate vertical velocity and rotation
                 }
 
                 !matches
@@ -334,6 +388,24 @@ impl Player {
 
     pub fn can_shoot(&self) -> bool {
         self.shot_timer <= 0.0
+    }
+
+    fn play_shoot_sound(&self, scene: &mut Scene) {
+        let mut ctx = scene.sound_context.state();
+        ctx.add_source(
+            SpatialSourceBuilder::new(
+                GenericSourceBuilder::new(self.firing_sound_buffer.clone().into())
+                    // rg3d-sound provides built-in way to create temporary sounds that will die immediately
+                    // after first play. This is very useful for foot step sounds.
+                    .with_play_once(true)
+                    // Every sound source must be explicity set to Playing status, otherwise it will be stopped.
+                    .with_status(Status::Playing)
+                    .build()
+                    .unwrap(),
+            )
+            .with_position(scene.graph[self.weapon_pivot].global_position())
+            .build_source(),
+        );
     }
 
     fn shoot_weapon(
@@ -385,32 +457,33 @@ impl Player {
                     let node = &mut scene.graph[node_handle];
                     let tag = node.tag().clone();
 
+                    #[cfg(feature = "server")]
                     let mut destroy_block = false;
+                    #[cfg(feature = "server")]
                     let mut kill_player = false;
 
                     // TODO: Should probably use collider groups instead of tag?
                     match tag {
                         "wall" => (),
                         "player" => {
-                            if cfg!(feature = "server") {
-                                node.set_tag("player_1_hp".to_string())
-                            }
+                            #[cfg(feature = "server")]
+                            node.set_tag("player_1_hp".to_string());
                         }
+                        #[cfg(feature = "server")]
                         "player_1_hp" => {
-                            if cfg!(feature = "server") {
-                                kill_player = true;
-                            }
+                            kill_player = true;
                         }
+                        #[cfg(feature = "server")]
                         "destructable" => {
                             destroy_block = true;
                         }
                         _ => {
-                            if cfg!(feature = "server") {
-                                node.set_tag("destructable".to_string())
-                            }
+                            // #[cfg(feature = "server")]
+                            node.set_tag("destructable".to_string());
                         }
                     }
 
+                    #[cfg(feature = "server")]
                     if destroy_block {
                         let event = PlayerEvent::DestroyBlock {
                             index: node_handle.index(),
@@ -425,26 +498,13 @@ impl Player {
                         event_sender.send(event).unwrap();
                     }
 
-                    // TODO: Do something like send gamemessage KillPlayer(collideer) which uses level.get_player_by_collider to get index and then sends PlayerMessage KillPlayer(index)
-                    // if kill_player {
-                    //     if let Ok(client_addr) = client_address.parse::<SocketAddr>() {
-                    //         let action = ActionMessage::KillPlayer { index: self.index };
-                    //         let message = NetworkMessage::Action {
-                    //             index: self.index, // TODO: Probably need a different kind of message for GameMessage and PlayerMessage?
-                    //             action: action,
-                    //         };
-
-                    //         action_sender.send(action);
-
-                    //         packet_sender
-                    //             .send(Packet::reliable_ordered(
-                    //                 client_addr,
-                    //                 serialize(&message).unwrap(),
-                    //                 None,
-                    //             ))
-                    //             .unwrap();
-                    //     }
-                    // }
+                    #[cfg(feature = "server")]
+                    if kill_player {
+                        let event = PlayerEvent::KillPlayerFromIntersection {
+                            collider: intersection.collider,
+                        };
+                        event_sender.send(event).unwrap();
+                    }
                 }
 
                 // Add bullet impact effect.
@@ -469,7 +529,11 @@ impl Player {
                 ray.dir.norm()
             };
 
+            #[cfg(not(feature = "server"))]
             create_shot_trail(&mut scene.graph, ray.origin, ray.dir, trail_length);
+
+            #[cfg(not(feature = "server"))]
+            self.play_shoot_sound(scene);
 
             // Reset camera rotation
             // scene.graph[self.camera]
@@ -536,6 +600,7 @@ async fn create_skybox(resource_manager: ResourceManager) -> SkyBox {
     skybox
 }
 
+#[cfg(not(feature = "server"))]
 fn create_bullet_impact(
     graph: &mut Graph,
     resource_manager: ResourceManager,
@@ -587,6 +652,7 @@ fn create_bullet_impact(
     .build(graph)
 }
 
+#[cfg(not(feature = "server"))]
 fn create_shot_trail(
     graph: &mut Graph,
     origin: Vector3<f32>,
@@ -597,7 +663,7 @@ fn create_shot_trail(
         .with_local_position(origin)
         // Scale the trail in XZ plane to make it thin, and apply `trail_length` scale on Y axis
         // to stretch is out.
-        .with_local_scale(Vector3::new(0.009, 0.009, trail_length))
+        .with_local_scale(Vector3::new(0.008, 0.008, trail_length))
         // Rotate the trail along given `direction`
         .with_local_rotation(UnitQuaternion::face_towards(&direction, &Vector3::y()))
         .build();
@@ -626,4 +692,8 @@ fn create_shot_trail(
     // transparent.
     .with_render_path(RenderPath::Forward)
     .build(graph);
+}
+
+fn lerp(a: f32, b: f32, f: f32) -> f32 {
+    return (a * (1.0 - f)) + (b * f);
 }

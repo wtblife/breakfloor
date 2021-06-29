@@ -1,4 +1,7 @@
-use rg3d::core::algebra::{Translation3, Vector3};
+use rg3d::{
+    core::algebra::{Translation3, Vector3},
+    scene::ColliderHandle,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
@@ -51,6 +54,10 @@ pub enum PlayerEvent {
     },
     KillPlayer {
         index: u32,
+    },
+    KillPlayerFromIntersection {
+        #[serde(skip)]
+        collider: ColliderHandle,
     },
     SpawnPlayer {
         // TODO: First send all the existing player spawn events to only the player that joined, then send everyone the spawned event for the current player index

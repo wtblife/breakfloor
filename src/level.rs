@@ -1,6 +1,7 @@
 use std::{
     net::SocketAddr,
     sync::mpsc::{self, channel, Receiver, Sender},
+    thread::spawn,
 };
 
 use rg3d::{
@@ -15,8 +16,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     network_manager::{NetworkManager, NetworkMessage},
-    player::{Player, PlayerState},
-    player_event::{PlayerEvent, SerializableVector},
+    player::{self, Player, PlayerState},
+    player_event::{PlayerEvent, SerializablePlayerState, SerializableVector},
     GameEngine,
 };
 
@@ -89,8 +90,8 @@ impl Level {
         self.players.iter_mut().find(|p| p.index == index)
     }
 
-    pub fn get_player_by_collider(&mut self, collider: ColliderHandle) -> Option<&mut Player> {
-        self.players.iter_mut().find(|p| p.collider == collider)
+    pub fn get_player_by_collider(&self, collider: ColliderHandle) -> Option<&Player> {
+        self.players.iter().find(|p| p.collider == collider)
     }
 
     pub fn remove_player(&mut self, engine: &mut GameEngine, index: u32) {
@@ -144,6 +145,48 @@ impl Level {
                 PlayerEvent::MoveUp { index, active } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_up = active;
+                    } else {
+                        // TODO: Handle this with it's own event
+                        #[cfg(feature = "server")]
+                        if let Some(address) = network_manager.get_address_for_player(index) {
+                            let position = SerializableVector {
+                                x: 1.5 + 3.0 * (-1.0f32).powi(index as i32),
+                                y: 1.0,
+                                z: 0.0,
+                            };
+                            let spawn_event = PlayerEvent::SpawnPlayer {
+                                index: index,
+                                state: SerializablePlayerState {
+                                    position: position,
+                                    ..Default::default()
+                                },
+                                current_player: false,
+                            };
+                            self.queue_event(spawn_event);
+                            network_manager.send_to_all_except_address_reliably(
+                                address,
+                                &NetworkMessage::PlayerEvent {
+                                    index: index,
+                                    event: spawn_event,
+                                },
+                            );
+
+                            let spawn_event = PlayerEvent::SpawnPlayer {
+                                index: index,
+                                state: SerializablePlayerState {
+                                    position: position,
+                                    ..Default::default()
+                                },
+                                current_player: true,
+                            };
+                            network_manager.send_to_address_reliably(
+                                address,
+                                &NetworkMessage::PlayerEvent {
+                                    index: index,
+                                    event: spawn_event,
+                                },
+                            );
+                        }
                     }
                 }
                 PlayerEvent::LookAround {
@@ -178,8 +221,8 @@ impl Level {
                         };
                         let previous_state = PlayerState {
                             timestamp: timestamp,
-                            position: player.get_position(&scene),
-                            velocity: player.get_velocity(&scene),
+                            position: player.get_position(scene),
+                            velocity: player.get_velocity(scene),
                             yaw: player.get_yaw(),
                             pitch: player.get_pitch(),
                             shoot: player.controller.shoot,
@@ -195,8 +238,34 @@ impl Level {
                 PlayerEvent::DestroyBlock { index } => {
                     self.destroy_block(engine, index);
                 }
+                #[cfg(feature = "server")]
+                PlayerEvent::KillPlayerFromIntersection { collider } => {
+                    // If player was killed then send kill and respawn events
+                    if let Some(player) = self.get_player_by_collider(collider) {
+                        let kill_event = PlayerEvent::KillPlayer {
+                            index: player.index,
+                        };
+                        let kill_message = NetworkMessage::PlayerEvent {
+                            index: player.index,
+                            event: kill_event,
+                        };
+
+                        network_manager.send_to_all_reliably(&kill_message);
+                        self.queue_event(kill_event);
+                    }
+                }
                 PlayerEvent::KillPlayer { index } => {
                     self.remove_player(engine, index);
+
+                    // If current player was killed then spectate another player
+                    if let Some(player_index) = network_manager.player_index {
+                        if player_index == index {
+                            let scene = &mut engine.scenes[self.scene];
+                            if let Some(player_to_spectate) = self.players.first() {
+                                player_to_spectate.set_camera(scene, true);
+                            }
+                        }
+                    }
                 }
                 PlayerEvent::SpawnPlayer {
                     index,
@@ -232,7 +301,8 @@ impl Level {
 
         let scene = &mut engine.scenes[self.scene];
         for player in self.players.iter_mut() {
-            if cfg!(feature = "server") {
+            #[cfg(feature = "server")]
+            {
                 let position = player.get_position(&scene);
                 let velocity = player.get_velocity(&scene);
                 let state_message = NetworkMessage::PlayerEvent {
@@ -281,6 +351,15 @@ impl Level {
         let scene = &mut engine.scenes[self.scene];
 
         if self.get_player_by_index(index).is_none() {
+            if current_player {
+                network_manager.player_index = Some(index);
+
+                // Disable any spectator cams
+                for existing_player in self.players.iter() {
+                    existing_player.set_camera(scene, false);
+                }
+            }
+
             let player = Player::new(
                 scene,
                 state,
@@ -291,10 +370,6 @@ impl Level {
             .await;
 
             self.players.push(player);
-
-            if current_player {
-                network_manager.player_index = Some(index);
-            }
         }
     }
 
@@ -315,9 +390,8 @@ impl Level {
                 scene.remove_node(handle);
                 scene.physics.remove_body(body.into());
 
-                if cfg!(feature = "server") {
-                    self.state.destroyed_blocks.push(index);
-                }
+                #[cfg(feature = "server")]
+                self.state.destroyed_blocks.push(index);
             }
         }
     }
@@ -326,7 +400,7 @@ impl Level {
         &self.players
     }
 
-    pub fn queue_event(&mut self, event: PlayerEvent) {
+    pub fn queue_event(&self, event: PlayerEvent) {
         self.sender.send(event).unwrap();
     }
 }

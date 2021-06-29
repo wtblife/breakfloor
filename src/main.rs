@@ -1,5 +1,4 @@
-// #![windows_subsystem = "windows"]
-
+#![cfg_attr(not(feature = "server"), windows_subsystem = "windows")]
 pub mod game;
 pub mod level;
 pub mod network_manager;
@@ -116,7 +115,8 @@ fn main() {
         })
         .unwrap();
 
-    if !SERVER {
+    #[cfg(not(feature = "server"))]
+    {
         let window = engine.get_window();
         window.set_cursor_visible(false);
         let _ = window.set_cursor_grab(true);
@@ -136,7 +136,8 @@ fn main() {
     event_loop.run(move |event, _, control_flow| {
         network_manager.handle_events(&mut engine, &mut game);
 
-        if !SERVER && focused && cursor_in_window {
+        #[cfg(not(feature = "server"))]
+        if focused && cursor_in_window {
             process_input_event(&event, &mut game, &mut network_manager);
         }
 
@@ -160,10 +161,12 @@ fn main() {
                 // Rendering must be explicitly requested and handled after RedrawRequested event is received.
                 engine.get_window().request_redraw();
             }
+            #[cfg(not(feature = "server"))]
             Event::RedrawRequested(_) => {
                 // Render at max speed - it is not tied to the game code.
                 engine.render(TIMESTEP).unwrap();
             }
+            #[cfg(not(feature = "server"))]
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                 WindowEvent::KeyboardInput { input, .. } => {
@@ -194,6 +197,7 @@ fn main() {
     });
 }
 
+#[cfg(not(feature = "server"))]
 fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut NetworkManager) {
     if let (Some(player_index), Some(level)) = (network_manager.player_index, &mut game.level) {
         match event {

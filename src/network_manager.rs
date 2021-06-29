@@ -1,4 +1,4 @@
-use bincode::{deserialize, serialize};
+use bincode::{deserialize, serialize, DefaultOptions, Options};
 use crossbeam_channel::{Receiver, Sender};
 use laminar::{Config, ErrorKind, Packet, Socket, SocketEvent};
 use serde::{Deserialize, Serialize};
@@ -23,7 +23,7 @@ pub struct NetworkManager {
     net_receiver: Receiver<SocketEvent>,
     connections: Vec<PlayerConnection>,
     highest_player_index: u32,
-    pub player_index: Option<u32>, // TODO: Should this be in game or here? It is here because it's easier
+    pub player_index: Option<u32>, // TODO: Should this be in game module or here? It is here because it's easier
 }
 
 impl NetworkManager {
@@ -34,25 +34,28 @@ impl NetworkManager {
             .next()
             .expect("Failed to resolve server hostname");
 
-        let mut socket;
-
         let config = Config {
             heartbeat_interval: Some(Duration::from_millis(500)),
-            idle_connection_timeout: Duration::from_millis(1500),
             ..Default::default()
         };
 
-        if cfg!(feature = "server") {
+        let mut socket;
+
+        #[cfg(feature = "server")]
+        {
             socket = Socket::bind_with_config("0.0.0.0:12351", config).unwrap();
-        } else {
+        }
+        #[cfg(not(feature = "server"))]
+        {
             socket = Socket::bind_with_config("0.0.0.0:12352", config).unwrap();
         }
 
         let (sender, receiver) = (socket.get_packet_sender(), socket.get_event_receiver());
 
-        thread::spawn(move || socket.start_polling());
+        thread::spawn(move || socket.start_polling_with_duration(None));
 
-        if !cfg!(feature = "server") {
+        #[cfg(not(feature = "server"))]
+        {
             sender
                 .send(Packet::reliable_ordered(
                     server_addr,
@@ -77,27 +80,36 @@ impl NetworkManager {
             match event {
                 // TODO: Maybe have this call handle_server_events and handle_client_events to make code easier to follow
                 SocketEvent::Packet(packet) => {
-                    if let Ok(message) = deserialize::<NetworkMessage>(packet.payload()) {
+                    let bincode = DefaultOptions::new()
+                        .with_fixint_encoding()
+                        .allow_trailing_bytes()
+                        .with_limit(2048);
+
+                    if let Ok(message) = bincode.deserialize::<NetworkMessage>(packet.payload()) {
                         match message {
                             NetworkMessage::PlayerEvent { index, event } => {
-                                // TODO: Player events should probably get index from connection and not trust client
+                                // TODO: Use index from connection on server. Must be set on outer index and inner event
                                 if let Some(level) = &mut game.level {
                                     let player = level.get_player_by_index(index);
                                     match event {
                                         PlayerEvent::ShootWeapon { index, active } => {
-                                            if game.server {
-                                                // Validate shoot command
-                                                if let Some(player) = player {
-                                                    if !active || player.can_shoot() {
-                                                        self.send_to_all_reliably(&message);
-                                                    }
+                                            #[cfg(feature = "server")]
+                                            // Validate shoot command
+                                            if let Some(player) = player {
+                                                if !active || player.can_shoot() {
+                                                    self.send_to_all_reliably(&message);
+                                                    level.queue_event(event);
                                                 }
                                             }
+
+                                            #[cfg(not(feature = "server"))]
                                             level.queue_event(event);
                                         }
+                                        #[cfg(not(feature = "server"))]
                                         PlayerEvent::DestroyBlock { index } => {
                                             level.queue_event(event);
                                         }
+                                        #[cfg(not(feature = "server"))]
                                         PlayerEvent::UpdateState {
                                             timestamp,
                                             index,
@@ -109,14 +121,13 @@ impl NetworkManager {
                                         } => {
                                             level.queue_event(event);
                                         }
-                                        // Handles all client predicted events (move events, etc) and player spawn.
+                                        // Handles all client predicted events (move events, etc) and player spawn. TODO: Player spawn should be reliable
                                         PlayerEvent::LookAround { .. }
                                         | PlayerEvent::MoveBackward { .. }
                                         | PlayerEvent::MoveForward { .. }
                                         | PlayerEvent::MoveLeft { .. }
                                         | PlayerEvent::MoveRight { .. }
-                                        | PlayerEvent::MoveUp { .. }
-                                        | PlayerEvent::SpawnPlayer { .. } => {
+                                        | PlayerEvent::MoveUp { .. } => {
                                             // If event isn't for active player then it hasn't been applied yet. This includes server.
                                             if self
                                                 .player_index
@@ -128,107 +139,114 @@ impl NetworkManager {
                                                 level.queue_event(event);
                                             }
 
-                                            if game.server {
-                                                // Send to all players except the one it was sent from
-                                                self.send_to_all_except_address_unreliably(
-                                                    packet.addr(),
-                                                    &message,
-                                                    0,
-                                                );
-                                            }
+                                            // Send to all players except the one it was sent from
+                                            #[cfg(feature = "server")]
+                                            self.send_to_all_except_address_unreliably(
+                                                packet.addr(),
+                                                &message,
+                                                0,
+                                            );
                                         }
                                         PlayerEvent::Jump { .. } => (),
+                                        #[cfg(not(feature = "server"))]
                                         PlayerEvent::KillPlayer { index } => {
                                             level.queue_event(event);
                                         }
+                                        PlayerEvent::SpawnPlayer {
+                                            state,
+                                            index,
+                                            current_player,
+                                        } => {
+                                            level.queue_event(event);
+                                        }
+                                        _ => (),
                                     }
                                 }
                             }
                             NetworkMessage::GameEvent { event } => {
                                 match event {
+                                    #[cfg(feature = "server")]
                                     GameEvent::Joined => {
-                                        if game.server {
-                                            // Spawn player and send spawn player messages to all
-                                            if let Some(level) = &mut game.level {
-                                                if let Some(index) =
-                                                    self.get_index_for_address(packet.addr())
-                                                {
-                                                    // Send events to spawn existing players for player that joined
-                                                    for player in level.players().iter() {
-                                                        let scene = &mut engine.scenes[level.scene];
-                                                        let position = player.get_position(scene);
-                                                        let velocity = player.get_velocity(scene);
-                                                        let message = NetworkMessage::PlayerEvent {
+                                        // Spawn player and send spawn player messages to all
+                                        if let Some(level) = &mut game.level {
+                                            if let Some(index) =
+                                                self.get_index_for_address(packet.addr())
+                                            {
+                                                // Send events to spawn existing players for player that joined
+                                                for player in level.players().iter() {
+                                                    let scene = &mut engine.scenes[level.scene];
+                                                    let position = player.get_position(scene);
+                                                    let velocity = player.get_velocity(scene);
+                                                    let message = NetworkMessage::PlayerEvent {
+                                                        index: player.index,
+                                                        event: PlayerEvent::SpawnPlayer {
                                                             index: player.index,
-                                                            event: PlayerEvent::SpawnPlayer {
-                                                                index: player.index,
-                                                                state: SerializablePlayerState {
-                                                                    position: SerializableVector {
-                                                                        x: position.x,
-                                                                        y: position.y,
-                                                                        z: position.z,
-                                                                    },
-                                                                    velocity: SerializableVector {
-                                                                        x: velocity.x,
-                                                                        y: velocity.y,
-                                                                        z: velocity.z,
-                                                                    },
-                                                                    yaw: player.get_yaw(),
-                                                                    pitch: player.get_pitch(),
-                                                                    shoot: player.controller.shoot,
+                                                            state: SerializablePlayerState {
+                                                                position: SerializableVector {
+                                                                    x: position.x,
+                                                                    y: position.y,
+                                                                    z: position.z,
                                                                 },
-                                                                current_player: false,
+                                                                velocity: SerializableVector {
+                                                                    x: velocity.x,
+                                                                    y: velocity.y,
+                                                                    z: velocity.z,
+                                                                },
+                                                                yaw: player.get_yaw(),
+                                                                pitch: player.get_pitch(),
+                                                                shoot: player.controller.shoot,
                                                             },
-                                                        };
-
-                                                        self.send_to_address_reliably(
-                                                            packet.addr(),
-                                                            &message,
-                                                        );
-                                                    }
-
-                                                    // Send spawn player event to all other players
-                                                    let position = SerializableVector {
-                                                        x: 1.5 + 3.0 * (-1.0f32).powi(index as i32),
-                                                        y: 1.0,
-                                                        z: 0.0,
-                                                    };
-                                                    let event = PlayerEvent::SpawnPlayer {
-                                                        index: index,
-                                                        state: SerializablePlayerState {
-                                                            position: position,
-                                                            ..Default::default()
+                                                            current_player: false,
                                                         },
-                                                        current_player: false,
                                                     };
-                                                    level.queue_event(event);
-                                                    self.send_to_all_except_address_reliably(
-                                                        packet.addr(),
-                                                        &NetworkMessage::PlayerEvent {
-                                                            index: index,
-                                                            event: event,
-                                                        },
-                                                    );
 
-                                                    // Send spawn player event to player (with current player true for setting camera)
-                                                    let event = PlayerEvent::SpawnPlayer {
-                                                        index: index,
-                                                        state: SerializablePlayerState {
-                                                            position: position,
-                                                            ..Default::default()
-                                                        },
-                                                        current_player: true,
-                                                    };
                                                     self.send_to_address_reliably(
                                                         packet.addr(),
-                                                        &NetworkMessage::PlayerEvent {
-                                                            index: index,
-                                                            event: event,
-                                                        },
+                                                        &message,
                                                     );
-
-                                                    println!("player joined: {}", index);
                                                 }
+
+                                                // Send spawn player event to all other players
+                                                let position = SerializableVector {
+                                                    x: 1.5 + 3.0 * (-1.0f32).powi(index as i32),
+                                                    y: 1.0,
+                                                    z: 0.0,
+                                                };
+                                                let event = PlayerEvent::SpawnPlayer {
+                                                    index: index,
+                                                    state: SerializablePlayerState {
+                                                        position: position,
+                                                        ..Default::default()
+                                                    },
+                                                    current_player: false,
+                                                };
+                                                level.queue_event(event);
+                                                self.send_to_all_except_address_reliably(
+                                                    packet.addr(),
+                                                    &NetworkMessage::PlayerEvent {
+                                                        index: index,
+                                                        event: event,
+                                                    },
+                                                );
+
+                                                // Send spawn player event to player (with current player true for setting camera)
+                                                let event = PlayerEvent::SpawnPlayer {
+                                                    index: index,
+                                                    state: SerializablePlayerState {
+                                                        position: position,
+                                                        ..Default::default()
+                                                    },
+                                                    current_player: true,
+                                                };
+                                                self.send_to_address_reliably(
+                                                    packet.addr(),
+                                                    &NetworkMessage::PlayerEvent {
+                                                        index: index,
+                                                        event: event,
+                                                    },
+                                                );
+
+                                                println!("player joined: {}", index);
                                             }
                                         }
                                     }
@@ -237,51 +255,47 @@ impl NetworkManager {
 
                                 game.queue_event(event);
                             }
+                            #[cfg(feature = "server")]
                             NetworkMessage::Connected => {
                                 // Respond to connected (first) packet so client can connect.
-                                if game.server {
-                                    self.net_sender
-                                        .send(Packet::reliable_ordered(
-                                            packet.addr(),
-                                            packet.payload().to_vec(),
-                                            None,
-                                        ))
-                                        .unwrap();
-                                }
+                                self.net_sender
+                                    .send(Packet::reliable_ordered(
+                                        packet.addr(),
+                                        packet.payload().to_vec(),
+                                        None,
+                                    ))
+                                    .unwrap();
                             }
                             _ => {}
                         }
                     }
                 }
                 SocketEvent::Connect(address) => {
-                    if game.server {
-                        if let Some(level) = &mut game.level {
-                            // Get the highest player index OR the last player index and add 1
-                            self.highest_player_index = *self
-                                .connections
-                                .iter()
-                                .map(|connection| connection.player_index)
-                                .max()
-                                .get_or_insert(self.highest_player_index)
-                                + 1;
+                    #[cfg(feature = "server")]
+                    if let Some(level) = &mut game.level {
+                        // Get the highest player index OR the last player index and add 1
+                        self.highest_player_index = *self
+                            .connections
+                            .iter()
+                            .map(|connection| connection.player_index)
+                            .max()
+                            .get_or_insert(self.highest_player_index)
+                            + 1;
 
-                            // Remove previous connection if it didn't disconnect for some reason
-
-                            self.connections.push(PlayerConnection {
-                                socket_addr: address,
-                                player_index: self.highest_player_index,
-                            });
-                            // Send message to load level
-                            self.send_to_address_reliably(
-                                address,
-                                &NetworkMessage::GameEvent {
-                                    event: GameEvent::LoadLevel {
-                                        level: level.name.clone(),
-                                        state: level.state.clone(),
-                                    },
+                        self.connections.push(PlayerConnection {
+                            socket_addr: address,
+                            player_index: self.highest_player_index,
+                        });
+                        // Send message to load level
+                        self.send_to_address_reliably(
+                            address,
+                            &NetworkMessage::GameEvent {
+                                event: GameEvent::LoadLevel {
+                                    level: level.name.clone(),
+                                    state: level.state.clone(),
                                 },
-                            );
-                        }
+                            },
+                        );
                     }
 
                     game.queue_event(GameEvent::Connected);
@@ -290,7 +304,8 @@ impl NetworkManager {
                     println!("currently connected: {:?}", self.connections);
                 }
                 SocketEvent::Disconnect(address) => {
-                    if game.server {
+                    #[cfg(feature = "server")]
+                    {
                         if let Some(level) = &mut game.level {
                             if let Some(index) = self.get_index_for_address(address) {
                                 let event = PlayerEvent::KillPlayer { index: index };
@@ -308,6 +323,8 @@ impl NetworkManager {
                             .retain(|connection| connection.socket_addr != address);
                     }
 
+                    game.queue_event(GameEvent::Disconnected);
+
                     println!("{} disconnected", address.to_string());
                     println!("currently connected: {:?}", self.connections);
                 }
@@ -318,7 +335,7 @@ impl NetworkManager {
         }
     }
 
-    fn send_to_all_except_address_reliably(
+    pub fn send_to_all_except_address_reliably(
         &mut self,
         address: SocketAddr,
         message: &NetworkMessage,
@@ -361,7 +378,7 @@ impl NetworkManager {
         }
     }
 
-    fn send_to_address_reliably(&mut self, address: SocketAddr, message: &NetworkMessage) {
+    pub fn send_to_address_reliably(&mut self, address: SocketAddr, message: &NetworkMessage) {
         self.net_sender
             .send(Packet::reliable_ordered(
                 address,
@@ -436,14 +453,16 @@ impl NetworkManager {
                 .unwrap();
         }
     }
+
     // pub fn send_to_player_reliably(&mut self) {}
 
     // pub fn send_to_player_unreliably(&mut self) {}
 
-    fn get_connection_for_player(&mut self, index: u32) -> Option<&PlayerConnection> {
+    pub fn get_address_for_player(&mut self, index: u32) -> Option<SocketAddr> {
         self.connections
             .iter()
             .find(|connection| connection.player_index == index)
+            .and_then(|connection| Some(connection.socket_addr))
     }
 
     fn get_index_for_address(&mut self, address: SocketAddr) -> Option<u32> {
