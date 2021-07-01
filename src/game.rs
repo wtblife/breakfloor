@@ -23,7 +23,8 @@ impl Game {
         let server = cfg!(feature = "server");
 
         let mut level = None;
-        #[cfg(feature = "server")] {
+        #[cfg(feature = "server")]
+        {
             level = Some(
                 Level::new(
                     engine,

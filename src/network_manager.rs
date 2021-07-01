@@ -92,7 +92,12 @@ impl NetworkManager {
                                 if let Some(level) = &mut game.level {
                                     let player = level.get_player_by_index(index);
                                     match event {
-                                        PlayerEvent::ShootWeapon { index, active } => {
+                                        PlayerEvent::ShootWeapon {
+                                            index,
+                                            active,
+                                            yaw,
+                                            pitch,
+                                        } => {
                                             #[cfg(feature = "server")]
                                             // Validate shoot command
                                             if let Some(player) = player {
@@ -129,6 +134,7 @@ impl NetworkManager {
                                         | PlayerEvent::MoveRight { .. }
                                         | PlayerEvent::MoveUp { .. } => {
                                             // If event isn't for active player then it hasn't been applied yet. This includes server.
+                                            // TODO: This check probably isn't necessary
                                             if self
                                                 .player_index
                                                 .and_then(

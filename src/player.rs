@@ -1,7 +1,7 @@
 use bincode::serialize;
 use rg3d::{
     core::{
-        algebra::{Isometry, Transform3, Translation3, UnitQuaternion, Vector3},
+        algebra::{Isometry, Matrix3, Transform3, Translation3, UnitQuaternion, Vector3},
         color::Color,
         color_gradient::{ColorGradient, GradientPoint},
         math::{ray::Ray, Matrix3Ext, Matrix4Ext, Vector3Ext},
@@ -61,6 +61,8 @@ pub struct PlayerController {
     pub move_up: bool,
     pub pitch: f32,
     pub yaw: f32,
+    pub dest_pitch: f32,
+    pub dest_yaw: f32,
     pub shoot: bool,
     pub new_state: Option<PlayerState>,
     pub previous_states: Vec<PlayerState>,
@@ -326,11 +328,16 @@ impl Player {
 
         // Update listener position if camera is active
         let camera = &scene.graph[self.camera];
-        let mut ctx = scene.sound_context.state();
-        let listener = ctx.listener_mut();
         if camera.as_camera().is_enabled() {
+            let mut ctx = scene.sound_context.state();
+            let listener = ctx.listener_mut();
+            let listener_basis = Matrix3::from_columns(&[
+                camera.side_vector(),
+                camera.up_vector(),
+                -camera.look_vector(),
+            ]);
             listener.set_position(camera.global_position());
-            listener.set_orientation_lh(camera.look_vector(), camera.up_vector());
+            listener.set_basis(listener_basis);
         }
     }
 
@@ -341,7 +348,7 @@ impl Player {
                 let matches = previous_state.timestamp == new_state.timestamp;
                 if matches {
                     let distance = new_state.position.sqr_distance(&previous_state.position);
-                    let max_distance_tolerated = MOVEMENT_SPEED;
+                    let max_distance_tolerated = MOVEMENT_SPEED / 2.0;
                     let correction_percentage = (distance / max_distance_tolerated).clamp(0.0, 1.0);
 
                     if correction_percentage > f32::EPSILON {
@@ -364,7 +371,7 @@ impl Player {
 
                     let velocity_difference =
                         (new_state.velocity.y - previous_state.velocity.y).abs();
-                    let max_difference_tolerated = 9.8 * GRAVITY_SCALE;
+                    let max_difference_tolerated = 9.8 * GRAVITY_SCALE * 2.0;
                     let velocity_correction =
                         (velocity_difference / max_difference_tolerated).clamp(0.0, 1.0);
 
@@ -395,8 +402,6 @@ impl Player {
         ctx.add_source(
             SpatialSourceBuilder::new(
                 GenericSourceBuilder::new(self.firing_sound_buffer.clone().into())
-                    // rg3d-sound provides built-in way to create temporary sounds that will die immediately
-                    // after first play. This is very useful for foot step sounds.
                     .with_play_once(true)
                     // Every sound source must be explicity set to Playing status, otherwise it will be stopped.
                     .with_status(Status::Playing)
@@ -404,6 +409,7 @@ impl Player {
                     .unwrap(),
             )
             .with_position(scene.graph[self.weapon_pivot].global_position())
+            .with_rolloff_factor(1.5)
             .build_source(),
         );
     }

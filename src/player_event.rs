@@ -9,22 +9,32 @@ pub enum PlayerEvent {
     ShootWeapon {
         index: u32,
         active: bool,
+        yaw: f32,
+        pitch: f32,
     },
     MoveForward {
         index: u32,
         active: bool,
+        yaw: f32,
+        pitch: f32,
     },
     MoveBackward {
         index: u32,
         active: bool,
+        yaw: f32,
+        pitch: f32,
     },
     MoveLeft {
         index: u32,
         active: bool,
+        yaw: f32,
+        pitch: f32,
     },
     MoveRight {
         index: u32,
         active: bool,
+        yaw: f32,
+        pitch: f32,
     },
     MoveUp {
         index: u32,
@@ -60,7 +70,6 @@ pub enum PlayerEvent {
         collider: ColliderHandle,
     },
     SpawnPlayer {
-        // TODO: First send all the existing player spawn events to only the player that joined, then send everyone the spawned event for the current player index
         state: SerializablePlayerState, // TODO: Should probably just serialize PlayerState
         index: u32,
         current_player: bool,

@@ -37,9 +37,6 @@ pub struct Level {
 
 impl Level {
     pub async fn new(engine: &mut GameEngine, scene_name: &str, state: LevelState) -> Self {
-        // Make message queue.
-        // let (_, receiver) = mpsc::channel();
-
         let mut scene = Scene::new();
 
         // engine
@@ -67,7 +64,6 @@ impl Level {
 
         scene.ambient_lighting_color = Color::opaque(255, 255, 255);
 
-        // Ask server to return new player and then spawn new player from network event
         let (sender, receiver) = channel();
 
         let mut level = Self {
@@ -111,42 +107,112 @@ impl Level {
         elapsed_time: f32,
     ) {
         while let Ok(action) = self.receiver.try_recv() {
-            // if let PlayerEvent::UpdateState { .. } = action {
-            // } else {
-            //     println!("player event received: {:?}", action);
-            // };
+            if let PlayerEvent::UpdateState { .. } = action {
+            } else {
+                println!("player event received: {:?}", action);
+            };
 
             match action {
-                PlayerEvent::ShootWeapon { index, active } => {
+                PlayerEvent::ShootWeapon {
+                    index,
+                    active,
+                    yaw,
+                    pitch,
+                } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.shoot = active;
+
+                        if network_manager
+                            .player_index
+                            .and_then(|id| if id == index { Some(id) } else { None })
+                            .is_none()
+                        {
+                            player.controller.yaw = yaw;
+                            player.controller.pitch = pitch;
+                        }
                     }
                 }
-                PlayerEvent::MoveForward { index, active } => {
+                PlayerEvent::MoveForward {
+                    index,
+                    active,
+                    yaw,
+                    pitch,
+                } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_forward = active;
+
+                        if network_manager
+                            .player_index
+                            .and_then(|id| if id == index { Some(id) } else { None })
+                            .is_none()
+                        {
+                            player.controller.yaw = yaw;
+                            player.controller.pitch = pitch;
+                        }
                     }
                 }
-                PlayerEvent::MoveBackward { index, active } => {
+                PlayerEvent::MoveBackward {
+                    index,
+                    active,
+                    yaw,
+                    pitch,
+                } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_backward = active;
+
+                        if network_manager
+                            .player_index
+                            .and_then(|id| if id == index { Some(id) } else { None })
+                            .is_none()
+                        {
+                            player.controller.yaw = yaw;
+                            player.controller.pitch = pitch;
+                        }
                     }
                 }
-                PlayerEvent::MoveLeft { index, active } => {
+                PlayerEvent::MoveLeft {
+                    index,
+                    active,
+                    yaw,
+                    pitch,
+                } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_left = active;
+
+                        if network_manager
+                            .player_index
+                            .and_then(|id| if id == index { Some(id) } else { None })
+                            .is_none()
+                        {
+                            player.controller.yaw = yaw;
+                            player.controller.pitch = pitch;
+                        }
                     }
                 }
-                PlayerEvent::MoveRight { index, active } => {
+                PlayerEvent::MoveRight {
+                    index,
+                    active,
+                    yaw,
+                    pitch,
+                } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_right = active;
+
+                        if network_manager
+                            .player_index
+                            .and_then(|id| if id == index { Some(id) } else { None })
+                            .is_none()
+                        {
+                            player.controller.yaw = yaw;
+                            player.controller.pitch = pitch;
+                        }
                     }
                 }
                 PlayerEvent::MoveUp { index, active } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_up = active;
                     } else {
-                        // TODO: Handle this with it's own event
+                        // TODO: Handle respawn with it's own event
                         #[cfg(feature = "server")]
                         if let Some(address) = network_manager.get_address_for_player(index) {
                             let position = SerializableVector {
@@ -329,7 +395,6 @@ impl Level {
                 network_manager.send_to_all_unreliably(&state_message, 0);
             }
 
-            // let scene = &mut engine.scenes[self.scene];
             player.update(
                 dt,
                 scene,

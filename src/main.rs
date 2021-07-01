@@ -1,4 +1,4 @@
-#![cfg_attr(not(feature = "server"), windows_subsystem = "windows")]
+#![cfg_attr(not(feature = "console"), windows_subsystem = "windows")]
 pub mod game;
 pub mod level;
 pub mod network_manager;
@@ -200,117 +200,129 @@ fn main() {
 #[cfg(not(feature = "server"))]
 fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut NetworkManager) {
     if let (Some(player_index), Some(level)) = (network_manager.player_index, &mut game.level) {
-        match event {
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::KeyboardInput { input, .. } => {
-                    if let Some(key_code) = input.virtual_keycode {
-                        match key_code {
-                            VirtualKeyCode::W => {
-                                let action = PlayerEvent::MoveForward {
-                                    index: player_index,
-                                    active: input.state == ElementState::Pressed,
-                                };
-                                let message = NetworkMessage::PlayerEvent {
-                                    index: player_index,
-                                    event: action,
-                                };
+        if let Some(player) = level.get_player_by_index(player_index) {
+            match event {
+                Event::WindowEvent { event, .. } => match event {
+                    WindowEvent::KeyboardInput { input, .. } => {
+                        if let Some(key_code) = input.virtual_keycode {
+                            match key_code {
+                                VirtualKeyCode::W => {
+                                    let action = PlayerEvent::MoveForward {
+                                        index: player_index,
+                                        active: input.state == ElementState::Pressed,
+                                        yaw: player.get_yaw(),
+                                        pitch: player.get_pitch(),
+                                    };
+                                    let message = NetworkMessage::PlayerEvent {
+                                        index: player_index,
+                                        event: action,
+                                    };
 
-                                // Should active = false be reliable since it's only sent once?
-                                network_manager.send_to_server_unreliably(&message, 0);
-                                level.queue_event(action);
+                                    // TODO: Should active = false be reliable since it's only sent once?
+                                    network_manager.send_to_server_unreliably(&message, 0);
+                                    level.queue_event(action);
+                                }
+                                VirtualKeyCode::S => {
+                                    let action = PlayerEvent::MoveBackward {
+                                        index: player_index,
+                                        active: input.state == ElementState::Pressed,
+                                        yaw: player.get_yaw(),
+                                        pitch: player.get_pitch(),
+                                    };
+
+                                    let message = NetworkMessage::PlayerEvent {
+                                        index: player_index,
+                                        event: action,
+                                    };
+
+                                    network_manager.send_to_server_unreliably(&message, 0);
+                                    level.queue_event(action);
+                                }
+                                VirtualKeyCode::A => {
+                                    let action = PlayerEvent::MoveLeft {
+                                        index: player_index,
+                                        active: input.state == ElementState::Pressed,
+                                        yaw: player.get_yaw(),
+                                        pitch: player.get_pitch(),
+                                    };
+                                    let message = NetworkMessage::PlayerEvent {
+                                        index: player_index,
+                                        event: action,
+                                    };
+
+                                    network_manager.send_to_server_unreliably(&message, 0);
+                                    level.queue_event(action);
+                                }
+                                VirtualKeyCode::D => {
+                                    let action = PlayerEvent::MoveRight {
+                                        index: player_index,
+                                        active: input.state == ElementState::Pressed,
+                                        yaw: player.get_yaw(),
+                                        pitch: player.get_pitch(),
+                                    };
+                                    let message = NetworkMessage::PlayerEvent {
+                                        index: player_index,
+                                        event: action,
+                                    };
+
+                                    network_manager.send_to_server_unreliably(&message, 0);
+                                    level.queue_event(action);
+                                }
+                                VirtualKeyCode::Space => {
+                                    let action = PlayerEvent::MoveUp {
+                                        index: player_index,
+                                        active: input.state == ElementState::Pressed,
+                                    };
+                                    let message = NetworkMessage::PlayerEvent {
+                                        index: player_index,
+                                        event: action,
+                                    };
+
+                                    network_manager.send_to_server_unreliably(&message, 0);
+                                    level.queue_event(action);
+                                }
+                                _ => (),
                             }
-                            VirtualKeyCode::S => {
-                                let action = PlayerEvent::MoveBackward {
-                                    index: player_index,
-                                    active: input.state == ElementState::Pressed,
-                                };
-
-                                let message = NetworkMessage::PlayerEvent {
-                                    index: player_index,
-                                    event: action,
-                                };
-
-                                network_manager.send_to_server_unreliably(&message, 0);
-                                level.queue_event(action);
-                            }
-                            VirtualKeyCode::A => {
-                                let action = PlayerEvent::MoveLeft {
-                                    index: player_index,
-                                    active: input.state == ElementState::Pressed,
-                                };
-                                let message = NetworkMessage::PlayerEvent {
-                                    index: player_index,
-                                    event: action,
-                                };
-
-                                network_manager.send_to_server_unreliably(&message, 0);
-                                level.queue_event(action);
-                            }
-                            VirtualKeyCode::D => {
-                                let action = PlayerEvent::MoveRight {
-                                    index: player_index,
-                                    active: input.state == ElementState::Pressed,
-                                };
-                                let message = NetworkMessage::PlayerEvent {
-                                    index: player_index,
-                                    event: action,
-                                };
-
-                                network_manager.send_to_server_unreliably(&message, 0);
-                                level.queue_event(action);
-                            }
-                            VirtualKeyCode::Space => {
-                                let action = PlayerEvent::MoveUp {
-                                    index: player_index,
-                                    active: input.state == ElementState::Pressed,
-                                };
-                                let message = NetworkMessage::PlayerEvent {
-                                    index: player_index,
-                                    event: action,
-                                };
-
-                                network_manager.send_to_server_unreliably(&message, 0);
-                                level.queue_event(action);
-                            }
-                            _ => (),
                         }
                     }
-                }
-                &WindowEvent::MouseInput { button, state, .. } => {
-                    if button == MouseButton::Left {
-                        let message = NetworkMessage::PlayerEvent {
-                            index: player_index,
-                            event: PlayerEvent::ShootWeapon {
+                    &WindowEvent::MouseInput { button, state, .. } => {
+                        if button == MouseButton::Left {
+                            let message = NetworkMessage::PlayerEvent {
                                 index: player_index,
-                                active: state == ElementState::Pressed,
-                            },
+                                event: PlayerEvent::ShootWeapon {
+                                    index: player_index,
+                                    active: state == ElementState::Pressed,
+                                    yaw: player.get_yaw(),
+                                    pitch: player.get_pitch(),
+                                },
+                            };
+
+                            network_manager.send_to_server_reliably(&message);
+                        }
+                    }
+                    _ => {}
+                },
+                Event::DeviceEvent { event, .. } => {
+                    if let DeviceEvent::MouseMotion { delta } = event {
+                        let mouse_sens = game.settings.look_sensitivity;
+
+                        let action = PlayerEvent::LookAround {
+                            index: player_index,
+                            yaw_delta: mouse_sens * delta.0 as f32,
+                            pitch_delta: mouse_sens * delta.1 as f32,
                         };
 
-                        network_manager.send_to_server_reliably(&message);
+                        let message = NetworkMessage::PlayerEvent {
+                            index: player_index,
+                            event: action,
+                        };
+
+                        network_manager.send_to_server_unreliably(&message, 0);
+                        level.queue_event(action);
                     }
                 }
-                _ => {}
-            },
-            Event::DeviceEvent { event, .. } => {
-                if let DeviceEvent::MouseMotion { delta } = event {
-                    let mouse_sens = game.settings.look_sensitivity;
-
-                    let action = PlayerEvent::LookAround {
-                        index: player_index,
-                        yaw_delta: mouse_sens * delta.0 as f32,
-                        pitch_delta: mouse_sens * delta.1 as f32,
-                    };
-
-                    let message = NetworkMessage::PlayerEvent {
-                        index: player_index,
-                        event: action,
-                    };
-
-                    network_manager.send_to_server_unreliably(&message, 0);
-                    level.queue_event(action);
-                }
+                _ => (),
             }
-            _ => (),
         }
     }
 }
