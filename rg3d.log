@@ -129,8 +129,8 @@
 
 [INFO]: Shader FXAAShader linked!
 
-[INFO]: Texture "textures/Block.png" is loaded in 431.6µs!
 [INFO]: Starting resolve...
+[INFO]: Texture "textures/Block.png" is loaded in 390.3µs!
 [INFO]: Resolving graph...
 [INFO]: Original handles resolved!
 [INFO]: Checking integrity...
@@ -139,20 +139,21 @@
 [INFO]: Resolving animations...
 [INFO]: Animations resolved successfully!
 [INFO]: Resolve succeeded!
-[INFO]: Model "data/levels/block_scene_2.rgs" is loaded!
-[INFO]: Resource data/levels/block_scene_2.rgs was successfully embedded into physics world!
+[INFO]: Model "data/levels/block_scene.rgs" is loaded!
+[INFO]: Resource data/levels/block_scene.rgs was successfully embedded into physics world!
+[INFO]: Texture "textures/floor.jpg" is loaded in 30.4933ms!
+[INFO]: Resource data/levels/block_scene.rgs was successfully embedded into physics world!
 [INFO]: Trying to load "data/models/shooting.fbx"
 [ERROR]: Unable to load texture "data/textures/gun_dDo_n.tga"! Reason Io(Os { code: 2, kind: NotFound, message: "The system cannot find the file specified." })
-[INFO]: Texture "data/textures/gun_dDo_d.tga" is loaded in 5.2449ms!
 [ERROR]: Unable to load texture "data/textures/soldier_dDo_n.tga"! Reason Io(Os { code: 2, kind: NotFound, message: "The system cannot find the file specified." })
-[INFO]: FBX "data/models/shooting.fbx" loaded in 115 ms
-	- Parsing - 88 ms
-	- DOM Prepare - 3 ms
-	- Conversion - 22 ms
+[INFO]: Texture "data/textures/gun_dDo_d.tga" is loaded in 10.4597ms!
+[INFO]: FBX "data/models/shooting.fbx" loaded in 172 ms
+	- Parsing - 140 ms
+	- DOM Prepare - 7 ms
+	- Conversion - 24 ms
 [INFO]: Model "data/models/shooting.fbx" is loaded!
 [INFO]: Starting resolve...
 [INFO]: Resolving graph...
-[INFO]: Texture "data/textures/soldier_dDo_d.tga" is loaded in 25.1299ms!
 [INFO]: Original handles resolved!
 [INFO]: Checking integrity...
 [INFO]: Integrity restored for 1 instances! 0 new nodes were added!
@@ -163,18 +164,14 @@
 [INFO]: Model "data/models/shooting.rgs" is loaded!
 [INFO]: Resource data/models/shooting.rgs was successfully embedded into physics world!
 [INFO]: Resource data/models/shooting.rgs was successfully embedded into physics world!
-[INFO]: Texture "data/textures/skybox/right.jpg" is loaded in 49.1991ms!
-[INFO]: Texture "data/textures/skybox/front.jpg" is loaded in 65.6933ms!
-[INFO]: Texture "data/textures/skybox/up.jpg" is loaded in 70.2142ms!
-[INFO]: Texture "data/textures/skybox/down.jpg" is loaded in 73.2539ms!
-[INFO]: Texture "data/textures/skybox/back.jpg" is loaded in 73.4179ms!
-[INFO]: Texture "data/textures/skybox/left.jpg" is loaded in 73.7187ms!
+[INFO]: Texture "data/textures/soldier_dDo_d.tga" is loaded in 31.0696ms!
+[INFO]: Texture "data/textures/skybox/up.jpg" is loaded in 32.9365ms!
+[INFO]: Texture "data/textures/skybox/left.jpg" is loaded in 40.5598ms!
+[INFO]: Texture "data/textures/skybox/back.jpg" is loaded in 40.7144ms!
+[INFO]: Texture "data/textures/skybox/right.jpg" is loaded in 42.4622ms!
+[INFO]: Texture "data/textures/skybox/front.jpg" is loaded in 45.5911ms!
+[INFO]: Texture "data/textures/skybox/down.jpg" is loaded in 45.6351ms!
 [INFO]: Sound buffer "data/sounds/laser4.ogg" is loaded!
-[INFO]: Texture resource "data/textures/skybox/front.jpg" destroyed because it not used anymore!
-[INFO]: Texture resource "data/textures/skybox/back.jpg" destroyed because it not used anymore!
-[INFO]: Texture resource "data/textures/skybox/left.jpg" destroyed because it not used anymore!
-[INFO]: Texture resource "data/textures/skybox/right.jpg" destroyed because it not used anymore!
-[INFO]: Texture resource "data/textures/skybox/up.jpg" destroyed because it not used anymore!
-[INFO]: Texture resource "data/textures/skybox/down.jpg" destroyed because it not used anymore!
-[INFO]: Model resource "data/models/shooting.rgs" destroyed because it not used anymore!
-[INFO]: Sound resource "data/sounds/laser4.ogg" destroyed because it not used anymore!
+[INFO]: Resource data/levels/block_scene.rgs was successfully embedded into physics world!
+[INFO]: Resource data/models/shooting.rgs was successfully embedded into physics world!
+[INFO]: Resource data/models/shooting.rgs was successfully embedded into physics world!

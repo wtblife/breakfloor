@@ -1,8 +1,7 @@
-- Level restart
-    - when player killed and only one player left (should be team later)
-- Limited flight time (using a regenerating fuel pool)
-- Death when falling certain distance
+- Fuel indicator/gauge
 - Teams
     - can only damage other team
     - something to differentiate other team (different colored armor/laser?)
 - Team scoring and k/d
+- Hitboxes
+- Animations

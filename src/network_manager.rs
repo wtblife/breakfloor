@@ -10,6 +10,7 @@ use std::{
 
 use crate::{
     game::{Game, GameEvent},
+    level::LevelState,
     player::Player,
     player_event::{PlayerEvent, SerializablePlayerState, SerializableVector},
     GameEngine,
@@ -85,12 +86,13 @@ impl NetworkManager {
                         .allow_trailing_bytes()
                         .with_limit(2048);
 
-                    if let Ok(message) = bincode.deserialize::<NetworkMessage>(packet.payload()) {
+                    if let Ok(message) =
+                        &mut bincode.deserialize::<NetworkMessage>(packet.payload())
+                    {
                         match message {
                             NetworkMessage::PlayerEvent { index, event } => {
                                 // TODO: Use index from connection on server. Must be set on outer index and inner event
                                 if let Some(level) = &mut game.level {
-                                    let player = level.get_player_by_index(index);
                                     match event {
                                         PlayerEvent::ShootWeapon {
                                             index,
@@ -99,20 +101,28 @@ impl NetworkManager {
                                             pitch,
                                         } => {
                                             #[cfg(feature = "server")]
-                                            // Validate shoot command
-                                            if let Some(player) = player {
-                                                if !active || player.can_shoot() {
-                                                    self.send_to_all_reliably(&message);
-                                                    level.queue_event(event);
+                                            if let Some(net_index) =
+                                                self.get_index_for_address(packet.addr())
+                                            {
+                                                *index = net_index;
+
+                                                if let Some(player) =
+                                                    level.get_player_by_index(net_index)
+                                                {
+                                                    // Validate shoot command
+                                                    if !*active || player.can_shoot() {
+                                                        level.queue_event(*event);
+                                                        self.send_to_all_reliably(message);
+                                                    }
                                                 }
                                             }
 
                                             #[cfg(not(feature = "server"))]
-                                            level.queue_event(event);
+                                            level.queue_event(*event);
                                         }
                                         #[cfg(not(feature = "server"))]
                                         PlayerEvent::DestroyBlock { index } => {
-                                            level.queue_event(event);
+                                            level.queue_event(*event);
                                         }
                                         #[cfg(not(feature = "server"))]
                                         PlayerEvent::UpdateState {
@@ -123,47 +133,78 @@ impl NetworkManager {
                                             yaw,
                                             pitch,
                                             shoot,
+                                            fuel,
                                         } => {
-                                            level.queue_event(event);
+                                            level.queue_event(*event);
                                         }
                                         // Handles all client predicted events (move events, etc) and player spawn. TODO: Player spawn should be reliable
-                                        PlayerEvent::LookAround { .. }
-                                        | PlayerEvent::MoveBackward { .. }
-                                        | PlayerEvent::MoveForward { .. }
-                                        | PlayerEvent::MoveLeft { .. }
-                                        | PlayerEvent::MoveRight { .. }
-                                        | PlayerEvent::MoveUp { .. } => {
+                                        PlayerEvent::LookAround { index, .. }
+                                        | PlayerEvent::MoveBackward { index, .. }
+                                        | PlayerEvent::MoveForward { index, .. }
+                                        | PlayerEvent::MoveLeft { index, .. }
+                                        | PlayerEvent::MoveRight { index, .. } => {
                                             // If event isn't for active player then it hasn't been applied yet. This includes server.
                                             // TODO: This check probably isn't necessary
-                                            if self
-                                                .player_index
-                                                .and_then(
-                                                    |id| if id == index { Some(id) } else { None },
-                                                )
-                                                .is_none()
-                                            {
-                                                level.queue_event(event);
-                                            }
+                                            // if self
+                                            //     .player_index
+                                            //     .and_then(|id| {
+                                            //         if id == *index {
+                                            //             Some(id)
+                                            //         } else {
+                                            //             None
+                                            //         }
+                                            //     })
+                                            //     .is_none()
+                                            // {
 
                                             // Send to all players except the one it was sent from
                                             #[cfg(feature = "server")]
-                                            self.send_to_all_except_address_unreliably(
-                                                packet.addr(),
-                                                &message,
-                                                0,
-                                            );
+                                            if let Some(net_index) =
+                                                self.get_index_for_address(packet.addr())
+                                            {
+                                                *index = net_index;
+                                                level.queue_event(*event);
+                                                self.send_to_all_except_address_unreliably(
+                                                    packet.addr(),
+                                                    message,
+                                                    0,
+                                                );
+                                            }
+
+                                            #[cfg(not(feature = "server"))]
+                                            level.queue_event(*event);
                                         }
-                                        PlayerEvent::Jump { .. } => (),
+                                        PlayerEvent::MoveUp { index, active } => {
+                                            #[cfg(feature = "server")]
+                                            if let Some(net_index) =
+                                                self.get_index_for_address(packet.addr())
+                                            {
+                                                *index = net_index;
+
+                                                if let Some(player) =
+                                                    level.get_player_by_index(net_index)
+                                                {
+                                                    // Validate fly command
+                                                    if !*active || player.can_fly() {
+                                                        level.queue_event(*event);
+                                                        self.send_to_all_reliably(message);
+                                                    }
+                                                }
+                                            }
+
+                                            #[cfg(not(feature = "server"))]
+                                            level.queue_event(*event);
+                                        }
                                         #[cfg(not(feature = "server"))]
                                         PlayerEvent::KillPlayer { index } => {
-                                            level.queue_event(event);
+                                            level.queue_event(*event);
                                         }
                                         PlayerEvent::SpawnPlayer {
                                             state,
                                             index,
                                             current_player,
                                         } => {
-                                            level.queue_event(event);
+                                            level.queue_event(*event);
                                         }
                                         _ => (),
                                     }
@@ -259,7 +300,7 @@ impl NetworkManager {
                                     _ => (),
                                 }
 
-                                game.queue_event(event);
+                                game.queue_event(event.clone());
                             }
                             #[cfg(feature = "server")]
                             NetworkMessage::Connected => {
@@ -292,16 +333,37 @@ impl NetworkManager {
                             socket_addr: address,
                             player_index: self.highest_player_index,
                         });
+
+                        let reset_level = level.players().len() < 2;
+                        let state = if reset_level {
+                            LevelState {
+                                destroyed_blocks: Vec::new(),
+                            }
+                        } else {
+                            level.state.clone()
+                        };
+
                         // Send message to load level
-                        self.send_to_address_reliably(
-                            address,
-                            &NetworkMessage::GameEvent {
-                                event: GameEvent::LoadLevel {
+                        let event = GameEvent::LoadLevel {
+                            level: level.name.clone(),
+                            state: state.clone(),
+                        };
+
+                        if reset_level {
+                            // TODO: Fix issue with event not being cloneable
+                            // TODO: Fix issue with not being able to re-borrow game
+                            game.event_sender
+                                .send(GameEvent::LoadLevel {
                                     level: level.name.clone(),
-                                    state: level.state.clone(),
-                                },
-                            },
-                        );
+                                    state: state.clone(),
+                                })
+                                .unwrap();
+                        } else {
+                            self.send_to_address_reliably(
+                                address,
+                                &NetworkMessage::GameEvent { event: event },
+                            );
+                        }
                     }
 
                     game.queue_event(GameEvent::Connected);
@@ -329,6 +391,7 @@ impl NetworkManager {
                             .retain(|connection| connection.socket_addr != address);
                     }
 
+                    #[cfg(not(feature = "server"))]
                     game.queue_event(GameEvent::Disconnected);
 
                     println!("{} disconnected", address.to_string());

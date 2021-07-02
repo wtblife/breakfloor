@@ -83,6 +83,7 @@ pub struct Player {
     third_person_model: Handle<Node>,
     first_person_model: Handle<Node>,
     firing_sound_buffer: SharedSoundBuffer,
+    pub flight_fuel: u32,
 }
 
 #[derive(Default)]
@@ -93,6 +94,7 @@ pub struct PlayerState {
     pub yaw: f32,
     pub pitch: f32,
     pub shoot: bool,
+    pub fuel: u32,
 }
 
 // impl Serialize for PlayerState {
@@ -220,6 +222,7 @@ impl Player {
             first_person_model,
             third_person_model,
             firing_sound_buffer,
+            flight_fuel: 200,
         }
     }
 
@@ -301,8 +304,11 @@ impl Player {
         // Finally new linear velocity.
         body.set_linvel(velocity, true);
 
-        if self.controller.move_up {
+        if self.controller.move_up && self.can_fly() {
             body.apply_impulse(pivot.up_vector() * JET_SPEED, true);
+            self.flight_fuel = (self.flight_fuel - 2).clamp(0, 200);
+        } else {
+            self.flight_fuel = (self.flight_fuel + 1).clamp(0, 200);
         }
 
         // Change the rotation of the rigid body according to current yaw. These lines responsible for
@@ -339,10 +345,20 @@ impl Player {
             listener.set_position(camera.global_position());
             listener.set_basis(listener_basis);
         }
+
+        #[cfg(feature = "server")]
+        if position.translation.vector.y < -10.0 {
+            event_sender
+                .send(PlayerEvent::KillPlayerFromIntersection {
+                    collider: self.collider,
+                })
+                .unwrap();
+        }
     }
 
     #[cfg(not(feature = "server"))]
     fn interpolate_state(&mut self, body: &mut RigidBody, dt: f32) {
+        let mut fuel = self.flight_fuel;
         if let Some(new_state) = self.controller.new_state.take() {
             self.controller.previous_states.retain(|previous_state| {
                 let matches = previous_state.timestamp == new_state.timestamp;
@@ -385,12 +401,18 @@ impl Player {
                         // println!("corrected velocity by: {}", velocity_correction);
                     }
 
-                    // TODO: interpolate vertical velocity and rotation
+                    fuel = new_state.fuel;
                 }
 
                 !matches
             });
         }
+
+        self.flight_fuel = fuel;
+    }
+
+    pub fn can_fly(&self) -> bool {
+        self.flight_fuel >= 2
     }
 
     pub fn can_shoot(&self) -> bool {
@@ -484,7 +506,7 @@ impl Player {
                             destroy_block = true;
                         }
                         _ => {
-                            // #[cfg(feature = "server")]
+                            #[cfg(feature = "server")]
                             node.set_tag("destructable".to_string());
                         }
                     }
@@ -568,7 +590,7 @@ impl Player {
         self.controller.pitch
     }
 
-    pub fn remove_nodes(&mut self, scene: &mut Scene) {
+    pub fn clean_up(&mut self, scene: &mut Scene) {
         scene.physics.remove_body(self.rigid_body);
         scene.remove_node(self.pivot);
     }

@@ -200,13 +200,13 @@ fn main() {
 #[cfg(not(feature = "server"))]
 fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut NetworkManager) {
     if let (Some(player_index), Some(level)) = (network_manager.player_index, &mut game.level) {
-        if let Some(player) = level.get_player_by_index(player_index) {
-            match event {
-                Event::WindowEvent { event, .. } => match event {
-                    WindowEvent::KeyboardInput { input, .. } => {
-                        if let Some(key_code) = input.virtual_keycode {
-                            match key_code {
-                                VirtualKeyCode::W => {
+        match event {
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::KeyboardInput { input, .. } => {
+                    if let Some(key_code) = input.virtual_keycode {
+                        match key_code {
+                            VirtualKeyCode::W => {
+                                if let Some(player) = level.get_player_by_index(player_index) {
                                     let action = PlayerEvent::MoveForward {
                                         index: player_index,
                                         active: input.state == ElementState::Pressed,
@@ -222,7 +222,9 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                                     network_manager.send_to_server_unreliably(&message, 0);
                                     level.queue_event(action);
                                 }
-                                VirtualKeyCode::S => {
+                            }
+                            VirtualKeyCode::S => {
+                                if let Some(player) = level.get_player_by_index(player_index) {
                                     let action = PlayerEvent::MoveBackward {
                                         index: player_index,
                                         active: input.state == ElementState::Pressed,
@@ -238,7 +240,9 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                                     network_manager.send_to_server_unreliably(&message, 0);
                                     level.queue_event(action);
                                 }
-                                VirtualKeyCode::A => {
+                            }
+                            VirtualKeyCode::A => {
+                                if let Some(player) = level.get_player_by_index(player_index) {
                                     let action = PlayerEvent::MoveLeft {
                                         index: player_index,
                                         active: input.state == ElementState::Pressed,
@@ -253,7 +257,9 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                                     network_manager.send_to_server_unreliably(&message, 0);
                                     level.queue_event(action);
                                 }
-                                VirtualKeyCode::D => {
+                            }
+                            VirtualKeyCode::D => {
+                                if let Some(player) = level.get_player_by_index(player_index) {
                                     let action = PlayerEvent::MoveRight {
                                         index: player_index,
                                         active: input.state == ElementState::Pressed,
@@ -268,25 +274,27 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                                     network_manager.send_to_server_unreliably(&message, 0);
                                     level.queue_event(action);
                                 }
-                                VirtualKeyCode::Space => {
-                                    let action = PlayerEvent::MoveUp {
-                                        index: player_index,
-                                        active: input.state == ElementState::Pressed,
-                                    };
-                                    let message = NetworkMessage::PlayerEvent {
-                                        index: player_index,
-                                        event: action,
-                                    };
-
-                                    network_manager.send_to_server_unreliably(&message, 0);
-                                    level.queue_event(action);
-                                }
-                                _ => (),
                             }
+                            VirtualKeyCode::Space => {
+                                let action = PlayerEvent::MoveUp {
+                                    index: player_index,
+                                    active: input.state == ElementState::Pressed,
+                                };
+                                let message = NetworkMessage::PlayerEvent {
+                                    index: player_index,
+                                    event: action,
+                                };
+
+                                network_manager.send_to_server_unreliably(&message, 0);
+                                // level.queue_event(action);
+                            }
+                            _ => (),
                         }
                     }
-                    &WindowEvent::MouseInput { button, state, .. } => {
-                        if button == MouseButton::Left {
+                }
+                &WindowEvent::MouseInput { button, state, .. } => {
+                    if button == MouseButton::Left {
+                        if let Some(player) = level.get_player_by_index(player_index) {
                             let message = NetworkMessage::PlayerEvent {
                                 index: player_index,
                                 event: PlayerEvent::ShootWeapon {
@@ -300,29 +308,29 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                             network_manager.send_to_server_reliably(&message);
                         }
                     }
-                    _ => {}
-                },
-                Event::DeviceEvent { event, .. } => {
-                    if let DeviceEvent::MouseMotion { delta } = event {
-                        let mouse_sens = game.settings.look_sensitivity;
-
-                        let action = PlayerEvent::LookAround {
-                            index: player_index,
-                            yaw_delta: mouse_sens * delta.0 as f32,
-                            pitch_delta: mouse_sens * delta.1 as f32,
-                        };
-
-                        let message = NetworkMessage::PlayerEvent {
-                            index: player_index,
-                            event: action,
-                        };
-
-                        network_manager.send_to_server_unreliably(&message, 0);
-                        level.queue_event(action);
-                    }
                 }
-                _ => (),
+                _ => {}
+            },
+            Event::DeviceEvent { event, .. } => {
+                if let DeviceEvent::MouseMotion { delta } = event {
+                    let mouse_sens = game.settings.look_sensitivity;
+
+                    let action = PlayerEvent::LookAround {
+                        index: player_index,
+                        yaw_delta: mouse_sens * delta.0 as f32,
+                        pitch_delta: mouse_sens * delta.1 as f32,
+                    };
+
+                    let message = NetworkMessage::PlayerEvent {
+                        index: player_index,
+                        event: action,
+                    };
+
+                    network_manager.send_to_server_unreliably(&message, 0);
+                    level.queue_event(action);
+                }
             }
+            _ => (),
         }
     }
 }

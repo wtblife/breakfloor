@@ -14,6 +14,7 @@ pub struct Game {
     pub event_receiver: Receiver<GameEvent>,
     pub server: bool,
     pub settings: Settings,
+    pub active: bool,
 }
 
 impl Game {
@@ -43,6 +44,7 @@ impl Game {
             event_receiver,
             server,
             settings,
+            active: true,
         }
     }
 
@@ -57,31 +59,56 @@ impl Game {
             match event {
                 GameEvent::Connected => (),
                 GameEvent::LoadLevel { level, state } => {
-                    let level =
-                        rg3d::futures::executor::block_on(Level::new(engine, &level, state));
-                    self.level = Some(level);
+                    let new_level = rg3d::futures::executor::block_on(Level::new(
+                        engine,
+                        &level,
+                        state.clone(),
+                    ));
+                    if let Some(level) = &mut self.level {
+                        level.clean_up(engine);
+                    }
+                    self.level = Some(new_level);
 
+                    #[cfg(not(feature = "server"))]
                     network_manager.send_to_server_reliably(&NetworkMessage::GameEvent {
                         event: GameEvent::Joined,
                     });
+
+                    #[cfg(feature = "server")]
+                    network_manager.send_to_all_reliably(&NetworkMessage::GameEvent {
+                        event: GameEvent::LoadLevel {
+                            level,
+                            state: state.clone(),
+                        },
+                    });
                 }
-                // Only received on server
-                GameEvent::Joined => (),
-                GameEvent::Disconnected => (),
+                #[cfg(feature = "server")]
+                GameEvent::Joined => {}
+                #[cfg(not(feature = "server"))]
+                GameEvent::Disconnected => {
+                    self.active = false;
+                }
+                _ => (),
             }
         }
 
         if let Some(level) = &mut self.level {
-            level.update(engine, dt, network_manager, elapsed_time);
+            level.update(
+                engine,
+                dt,
+                network_manager,
+                elapsed_time,
+                &self.event_sender,
+            );
         }
     }
 
-    pub fn queue_event(&mut self, event: GameEvent) {
+    pub fn queue_event(&self, event: GameEvent) {
         self.event_sender.send(event).unwrap();
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum GameEvent {
     Connected,
     Disconnected,

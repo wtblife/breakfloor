@@ -15,6 +15,7 @@ use rg3d::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    game::GameEvent,
     network_manager::{NetworkManager, NetworkMessage},
     player::{self, Player, PlayerState},
     player_event::{PlayerEvent, SerializablePlayerState, SerializableVector},
@@ -93,10 +94,20 @@ impl Level {
     pub fn remove_player(&mut self, engine: &mut GameEngine, index: u32) {
         let scene = &mut engine.scenes[self.scene];
         if let Some(player) = self.get_player_by_index(index) {
-            player.remove_nodes(scene);
+            player.clean_up(scene);
         }
 
         self.players.retain(|p| p.index != index)
+    }
+
+    pub fn clean_up(&mut self, engine: &mut GameEngine) {
+        let scene = &mut engine.scenes[self.scene];
+
+        for player in self.players.iter_mut() {
+            player.clean_up(scene);
+        }
+
+        self.players.clear();
     }
 
     pub fn update(
@@ -105,12 +116,13 @@ impl Level {
         dt: f32,
         network_manager: &mut NetworkManager,
         elapsed_time: f32,
+        game_event_sender: &Sender<GameEvent>,
     ) {
         while let Ok(action) = self.receiver.try_recv() {
-            if let PlayerEvent::UpdateState { .. } = action {
-            } else {
-                println!("player event received: {:?}", action);
-            };
+            // if let PlayerEvent::UpdateState { .. } = action {
+            // } else {
+            //     println!("player event received: {:?}", action);
+            // };
 
             match action {
                 PlayerEvent::ShootWeapon {
@@ -213,46 +225,48 @@ impl Level {
                         player.controller.move_up = active;
                     } else {
                         // TODO: Handle respawn with it's own event
-                        #[cfg(feature = "server")]
-                        if let Some(address) = network_manager.get_address_for_player(index) {
-                            let position = SerializableVector {
-                                x: 1.5 + 3.0 * (-1.0f32).powi(index as i32),
-                                y: 1.0,
-                                z: 0.0,
-                            };
-                            let spawn_event = PlayerEvent::SpawnPlayer {
-                                index: index,
-                                state: SerializablePlayerState {
-                                    position: position,
-                                    ..Default::default()
-                                },
-                                current_player: false,
-                            };
-                            self.queue_event(spawn_event);
-                            network_manager.send_to_all_except_address_reliably(
-                                address,
-                                &NetworkMessage::PlayerEvent {
-                                    index: index,
-                                    event: spawn_event,
-                                },
-                            );
+                        // #[cfg(feature = "server")]
+                        // if let Some(address) = network_manager.get_address_for_player(index) {
+                        //     // If one or less players left, restart level
 
-                            let spawn_event = PlayerEvent::SpawnPlayer {
-                                index: index,
-                                state: SerializablePlayerState {
-                                    position: position,
-                                    ..Default::default()
-                                },
-                                current_player: true,
-                            };
-                            network_manager.send_to_address_reliably(
-                                address,
-                                &NetworkMessage::PlayerEvent {
-                                    index: index,
-                                    event: spawn_event,
-                                },
-                            );
-                        }
+                        //     let position = SerializableVector {
+                        //         x: 1.5 + 3.0 * (-1.0f32).powi(index as i32),
+                        //         y: 1.0,
+                        //         z: 0.0,
+                        //     };
+                        //     let spawn_event = PlayerEvent::SpawnPlayer {
+                        //         index: index,
+                        //         state: SerializablePlayerState {
+                        //             position: position,
+                        //             ..Default::default()
+                        //         },
+                        //         current_player: false,
+                        //     };
+                        //     self.queue_event(spawn_event);
+                        //     network_manager.send_to_all_except_address_reliably(
+                        //         address,
+                        //         &NetworkMessage::PlayerEvent {
+                        //             index: index,
+                        //             event: spawn_event,
+                        //         },
+                        //     );
+
+                        //     let spawn_event = PlayerEvent::SpawnPlayer {
+                        //         index: index,
+                        //         state: SerializablePlayerState {
+                        //             position: position,
+                        //             ..Default::default()
+                        //         },
+                        //         current_player: true,
+                        //     };
+                        //     network_manager.send_to_address_reliably(
+                        //         address,
+                        //         &NetworkMessage::PlayerEvent {
+                        //             index: index,
+                        //             event: spawn_event,
+                        //         },
+                        //     );
+                        // }
                     }
                 }
                 PlayerEvent::LookAround {
@@ -274,6 +288,7 @@ impl Level {
                     yaw,
                     pitch,
                     shoot,
+                    fuel,
                 } => {
                     let scene = &mut engine.scenes[self.scene];
                     if let Some(player) = self.get_player_by_index(index) {
@@ -284,6 +299,7 @@ impl Level {
                             yaw: yaw,
                             pitch: pitch,
                             shoot: shoot,
+                            fuel: fuel,
                         };
                         let previous_state = PlayerState {
                             timestamp: timestamp,
@@ -292,6 +308,7 @@ impl Level {
                             yaw: player.get_yaw(),
                             pitch: player.get_pitch(),
                             shoot: player.controller.shoot,
+                            fuel: player.flight_fuel,
                         };
                         player
                             .controller
@@ -318,11 +335,20 @@ impl Level {
 
                         network_manager.send_to_all_reliably(&kill_message);
                         self.queue_event(kill_event);
+
+                        if self.players.len() < 3 {
+                            let event = GameEvent::LoadLevel {
+                                level: self.name.clone(),
+                                state: LevelState {
+                                    destroyed_blocks: Vec::new(),
+                                },
+                            };
+                            game_event_sender.send(event).unwrap();
+                        }
                     }
                 }
                 PlayerEvent::KillPlayer { index } => {
                     self.remove_player(engine, index);
-
                     // If current player was killed then spectate another player
                     if let Some(player_index) = network_manager.player_index {
                         if player_index == index {
@@ -389,6 +415,7 @@ impl Level {
                         yaw: player.get_yaw(),
                         pitch: player.get_pitch(),
                         shoot: player.controller.shoot,
+                        fuel: player.flight_fuel,
                     },
                 };
 

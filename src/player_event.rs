@@ -58,6 +58,7 @@ pub enum PlayerEvent {
         yaw: f32,
         pitch: f32,
         shoot: bool,
+        fuel: u32,
     },
     DestroyBlock {
         index: u32,
