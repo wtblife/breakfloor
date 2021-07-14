@@ -29,7 +29,7 @@ impl Game {
             level = Some(
                 Level::new(
                     engine,
-                    "block_scene",
+                    "block_scene_2",
                     LevelState {
                         destroyed_blocks: Vec::new(),
                     },

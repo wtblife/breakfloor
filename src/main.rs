@@ -170,9 +170,11 @@ fn main() {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                 WindowEvent::KeyboardInput { input, .. } => {
-                    // Exit game by hitting Escape.
-                    if let Some(VirtualKeyCode::Escape) = input.virtual_keycode {
-                        *control_flow = ControlFlow::Exit
+                    if focused && cursor_in_window {
+                        // Exit game by hitting Escape.
+                        if let Some(VirtualKeyCode::Escape) = input.virtual_keycode {
+                            *control_flow = ControlFlow::Exit
+                        }
                     }
                 }
                 WindowEvent::Resized(size) => {
@@ -193,6 +195,11 @@ fn main() {
                 _ => (),
             },
             _ => *control_flow = ControlFlow::Poll,
+        }
+
+        #[cfg(not(feature = "server"))]
+        if !game.active {
+            *control_flow = ControlFlow::Exit
         }
     });
 }
@@ -276,17 +283,20 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                                 }
                             }
                             VirtualKeyCode::Space => {
-                                let action = PlayerEvent::MoveUp {
-                                    index: player_index,
-                                    active: input.state == ElementState::Pressed,
-                                };
-                                let message = NetworkMessage::PlayerEvent {
-                                    index: player_index,
-                                    event: action,
-                                };
+                                if let Some(player) = level.get_player_by_index(player_index) {
+                                    let action = PlayerEvent::MoveUp {
+                                        index: player_index,
+                                        active: input.state == ElementState::Pressed,
+                                        fuel: player.flight_fuel,
+                                    };
+                                    let message = NetworkMessage::PlayerEvent {
+                                        index: player_index,
+                                        event: action,
+                                    };
 
-                                network_manager.send_to_server_unreliably(&message, 0);
-                                // level.queue_event(action);
+                                    network_manager.send_to_server_unreliably(&message, 0);
+                                    // level.queue_event(action);
+                                }
                             }
                             _ => (),
                         }

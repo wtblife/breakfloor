@@ -3,6 +3,7 @@ use crossbeam_channel::{Receiver, Sender};
 use laminar::{Config, ErrorKind, Packet, Socket, SocketEvent};
 use serde::{Deserialize, Serialize};
 use std::{
+    convert::TryInto,
     net::{SocketAddr, ToSocketAddrs},
     thread,
     time::Duration,
@@ -174,7 +175,11 @@ impl NetworkManager {
                                             #[cfg(not(feature = "server"))]
                                             level.queue_event(*event);
                                         }
-                                        PlayerEvent::MoveUp { index, active } => {
+                                        PlayerEvent::MoveUp {
+                                            index,
+                                            active,
+                                            fuel,
+                                        } => {
                                             #[cfg(feature = "server")]
                                             if let Some(net_index) =
                                                 self.get_index_for_address(packet.addr())
@@ -186,8 +191,9 @@ impl NetworkManager {
                                                 {
                                                     // Validate fly command
                                                     if !*active || player.can_fly() {
+                                                        *fuel = player.flight_fuel;
                                                         level.queue_event(*event);
-                                                        self.send_to_all_reliably(message);
+                                                        self.send_to_all_unreliably(message, 0);
                                                     }
                                                 }
                                             }
@@ -417,7 +423,7 @@ impl NetworkManager {
                     .send(Packet::reliable_ordered(
                         connection.socket_addr,
                         serialize(message).unwrap(),
-                        None,
+                        self.get_connection_stream_id(connection),
                     ))
                     .unwrap();
             }
@@ -452,7 +458,7 @@ impl NetworkManager {
             .send(Packet::reliable_ordered(
                 address,
                 serialize(message).unwrap(),
-                None,
+                self.get_address_stream_id(address),
             ))
             .unwrap();
     }
@@ -480,7 +486,7 @@ impl NetworkManager {
                 .send(Packet::reliable_ordered(
                     connection.socket_addr,
                     serialize(message).unwrap(),
-                    None,
+                    self.get_connection_stream_id(connection),
                 ))
                 .unwrap();
         }
@@ -500,13 +506,12 @@ impl NetworkManager {
         }
     }
 
-    // TODO: Are server functions necessary if server is apart of connections?
     pub fn send_to_server_reliably(&mut self, message: &NetworkMessage) {
         self.net_sender
             .send(Packet::reliable_ordered(
                 self.server_addr,
                 serialize(message).unwrap(),
-                None,
+                self.get_address_stream_id(self.server_addr),
             ))
             .unwrap();
     }
@@ -527,18 +532,31 @@ impl NetworkManager {
 
     // pub fn send_to_player_unreliably(&mut self) {}
 
-    pub fn get_address_for_player(&mut self, index: u32) -> Option<SocketAddr> {
+    pub fn get_address_for_player(&self, index: u32) -> Option<SocketAddr> {
         self.connections
             .iter()
             .find(|connection| connection.player_index == index)
             .and_then(|connection| Some(connection.socket_addr))
     }
 
-    fn get_index_for_address(&mut self, address: SocketAddr) -> Option<u32> {
+    fn get_index_for_address(&self, address: SocketAddr) -> Option<u32> {
         self.connections
             .iter()
             .find(|connection| connection.socket_addr == address)
             .and_then(|connection| Some(connection.player_index))
+    }
+
+    fn get_connection_stream_id(&self, connection: &PlayerConnection) -> Option<u8> {
+        Some(connection.player_index.to_le_bytes()[0])
+    }
+
+    fn get_address_stream_id(&self, address: SocketAddr) -> Option<u8> {
+        if address == self.server_addr {
+            return Some(0u8);
+        };
+
+        self.get_index_for_address(address)
+            .and_then(|player_index| Some(player_index.to_le_bytes()[0]))
     }
 }
 

@@ -51,6 +51,7 @@ use crate::{
 const MOVEMENT_SPEED: f32 = 1.5;
 const GRAVITY_SCALE: f32 = 0.5;
 const JET_SPEED: f32 = 0.012;
+pub const SYNC_FREQUENCY: u32 = 3;
 
 #[derive(Default)]
 pub struct PlayerController {
@@ -66,6 +67,7 @@ pub struct PlayerController {
     pub shoot: bool,
     pub new_state: Option<PlayerState>,
     pub previous_states: Vec<PlayerState>,
+    smoothing_speed: f32,
 }
 
 pub struct Player {
@@ -84,9 +86,10 @@ pub struct Player {
     first_person_model: Handle<Node>,
     firing_sound_buffer: SharedSoundBuffer,
     pub flight_fuel: u32,
+    current_player: bool,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct PlayerState {
     pub timestamp: f32,
     pub position: Vector3<f32>,
@@ -94,7 +97,7 @@ pub struct PlayerState {
     pub yaw: f32,
     pub pitch: f32,
     pub shoot: bool,
-    pub fuel: u32,
+    // pub fuel: u32,
 }
 
 // impl Serialize for PlayerState {
@@ -223,6 +226,7 @@ impl Player {
             third_person_model,
             firing_sound_buffer,
             flight_fuel: 200,
+            current_player,
         }
     }
 
@@ -268,8 +272,6 @@ impl Player {
             self.recoil_target_offset = Default::default();
         }
 
-        let pivot = &mut scene.graph[self.pivot];
-
         // Borrow rigid body in the physics.
         let body = scene
             .physics
@@ -279,6 +281,8 @@ impl Player {
 
         #[cfg(not(feature = "server"))]
         self.interpolate_state(body, dt);
+
+        let pivot = &mut scene.graph[self.pivot];
 
         // Keep only vertical velocity, and drop horizontal.
         let mut velocity = Vector3::new(0.0, body.linvel().y, 0.0);
@@ -358,57 +362,92 @@ impl Player {
 
     #[cfg(not(feature = "server"))]
     fn interpolate_state(&mut self, body: &mut RigidBody, dt: f32) {
-        let mut fuel = self.flight_fuel;
-        if let Some(new_state) = self.controller.new_state.take() {
-            self.controller.previous_states.retain(|previous_state| {
-                let matches = previous_state.timestamp == new_state.timestamp;
-                if matches {
-                    let distance = new_state.position.sqr_distance(&previous_state.position);
-                    let max_distance_tolerated = MOVEMENT_SPEED / 2.0;
-                    let correction_percentage = (distance / max_distance_tolerated).clamp(0.0, 1.0);
+        // if length > buffer_length {
+        //     self.controller
+        //         .previous_states
+        //         .drain(0..length - buffer_length + 1);
+        // }
+        if let Some(new_state) = &self.controller.new_state {
+            // let minimum_distance = self
+            //     .controller
+            //     .previous_states
+            //     .iter_mut()
+            //     .enumerate()
+            //     .map(|(index, previous_state)| {
+            //         (
+            //             index,
+            //             (new_state.position - previous_state.position).magnitude() as f32,
+            //         )
+            //     })
+            //     .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            // println!("minimum distance: {:?}", minimum_distance);
+            // println!("length: {}", self.controller.previous_states.len());
+            // body.set_position(
+            //     Isometry::from_parts(
+            //         Translation3::from(new_state.position),
+            //         (*body.position()).rotation,
+            //     ),
+            //     true,
+            // );
+            // self.controller.new_state = None;
+            if let Some(previous_state) = self.controller.previous_states.last_mut() {
+                // Only sync vertical velocity
+                let mut velocity_diff: Vector3<f32> =
+                    Vector3::new(0.0, new_state.velocity.y - previous_state.velocity.y, 0.0);
+                let velocity_diff_mag = velocity_diff.magnitude();
 
-                    if correction_percentage > f32::EPSILON {
-                        let mut pos = *body.position();
-                        pos = pos.lerp_slerp(
-                            &Isometry::from_parts(
-                                Translation3::new(
-                                    new_state.position.x,
-                                    new_state.position.y,
-                                    new_state.position.z,
-                                ),
-                                pos.rotation,
-                            ),
-                            correction_percentage,
-                        );
-                        body.set_position(pos, true);
+                if velocity_diff_mag > 0.0 {
+                    let max_change = 9.8 * GRAVITY_SCALE * dt as f32;
+                    let velocity_change = f32::min(velocity_diff_mag, max_change);
+                    velocity_diff *= velocity_change / velocity_diff_mag;
+                    previous_state.velocity += velocity_diff;
 
-                        // println!("corrected position by: {}", correction_percentage);
-                    }
-
-                    let velocity_difference =
-                        (new_state.velocity.y - previous_state.velocity.y).abs();
-                    let max_difference_tolerated = 9.8 * GRAVITY_SCALE * 2.0;
-                    let velocity_correction =
-                        (velocity_difference / max_difference_tolerated).clamp(0.0, 1.0);
-
-                    if velocity_correction > f32::EPSILON {
-                        let new_vertical_velocity =
-                            lerp(body.linvel().y, new_state.velocity.y, velocity_correction);
-
-                        let velocity = Vector3::new(0.0, new_vertical_velocity, 0.0);
-
-                        body.set_linvel(velocity, true);
-                        // println!("corrected velocity by: {}", velocity_correction);
-                    }
-
-                    fuel = new_state.fuel;
+                    let new_velocity = *body.linvel() + velocity_diff;
+                    body.set_linvel(new_velocity, true);
                 }
 
-                !matches
-            });
-        }
+                // Sync position
+                let mut pos_diff: Vector3<f32> = new_state.position - previous_state.position;
+                let pos_diff_mag = pos_diff.magnitude();
 
-        self.flight_fuel = fuel;
+                if pos_diff_mag > 0.0 {
+                    println!("distance: {}", pos_diff_mag);
+                    let min_smooth_speed: f32 = MOVEMENT_SPEED * 0.5;
+                    let target_catchup_time: f32 = dt * 3.0;
+
+                    self.controller.smoothing_speed = f32::max(
+                        self.controller.smoothing_speed,
+                        f32::max(min_smooth_speed, pos_diff_mag / target_catchup_time),
+                    );
+                    let max_move = dt * self.controller.smoothing_speed;
+                    let move_dist = f32::min(pos_diff_mag, max_move);
+                    pos_diff *= move_dist / pos_diff_mag;
+
+                    let new_pos = Translation3::from(pos_diff) * (*body.position());
+                    body.set_position(new_pos, true);
+
+                    // println!("previous states:");
+                    // for previous_state in self.controller.previous_states.iter_mut() {
+                    //     previous_state.position += pos_diff;
+                    //     // println!("{:?}", previous_state);
+                    // }
+
+                    if move_dist == pos_diff_mag {
+                        self.controller.smoothing_speed = 0.0;
+                        // self.controller
+                        //     .previous_states
+                        //     .remove(SYNC_FREQUENCY as usize);
+                        self.controller.new_state = None;
+                    }
+                } else {
+                    self.controller.smoothing_speed = 0.0;
+                    // self.controller
+                    //     .previous_states
+                    //     .remove(SYNC_FREQUENCY as usize);
+                    self.controller.new_state = None;
+                }
+            }
+        }
     }
 
     pub fn can_fly(&self) -> bool {

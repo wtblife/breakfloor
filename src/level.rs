@@ -1,3 +1,4 @@
+use core::time;
 use std::{
     net::SocketAddr,
     sync::mpsc::{self, channel, Receiver, Sender},
@@ -17,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     game::GameEvent,
     network_manager::{NetworkManager, NetworkMessage},
-    player::{self, Player, PlayerState},
+    player::{self, Player, PlayerState, SYNC_FREQUENCY},
     player_event::{PlayerEvent, SerializablePlayerState, SerializableVector},
     GameEngine,
 };
@@ -220,54 +221,59 @@ impl Level {
                         }
                     }
                 }
-                PlayerEvent::MoveUp { index, active } => {
+                PlayerEvent::MoveUp {
+                    index,
+                    active,
+                    fuel,
+                } => {
                     if let Some(player) = self.get_player_by_index(index) {
                         player.controller.move_up = active;
-                    } else {
-                        // TODO: Handle respawn with it's own event
-                        // #[cfg(feature = "server")]
-                        // if let Some(address) = network_manager.get_address_for_player(index) {
-                        //     // If one or less players left, restart level
+                        player.flight_fuel = fuel;
+                    } //else {
+                      // TODO: Handle respawn with it's own event
+                      // #[cfg(feature = "server")]
+                      // if let Some(address) = network_manager.get_address_for_player(index) {
+                      //     // If one or less players left, restart level
 
-                        //     let position = SerializableVector {
-                        //         x: 1.5 + 3.0 * (-1.0f32).powi(index as i32),
-                        //         y: 1.0,
-                        //         z: 0.0,
-                        //     };
-                        //     let spawn_event = PlayerEvent::SpawnPlayer {
-                        //         index: index,
-                        //         state: SerializablePlayerState {
-                        //             position: position,
-                        //             ..Default::default()
-                        //         },
-                        //         current_player: false,
-                        //     };
-                        //     self.queue_event(spawn_event);
-                        //     network_manager.send_to_all_except_address_reliably(
-                        //         address,
-                        //         &NetworkMessage::PlayerEvent {
-                        //             index: index,
-                        //             event: spawn_event,
-                        //         },
-                        //     );
+                    //     let position = SerializableVector {
+                    //         x: 1.5 + 3.0 * (-1.0f32).powi(index as i32),
+                    //         y: 1.0,
+                    //         z: 0.0,
+                    //     };
+                    //     let spawn_event = PlayerEvent::SpawnPlayer {
+                    //         index: index,
+                    //         state: SerializablePlayerState {
+                    //             position: position,
+                    //             ..Default::default()
+                    //         },
+                    //         current_player: false,
+                    //     };
+                    //     self.queue_event(spawn_event);
+                    //     network_manager.send_to_all_except_address_reliably(
+                    //         address,
+                    //         &NetworkMessage::PlayerEvent {
+                    //             index: index,
+                    //             event: spawn_event,
+                    //         },
+                    //     );
 
-                        //     let spawn_event = PlayerEvent::SpawnPlayer {
-                        //         index: index,
-                        //         state: SerializablePlayerState {
-                        //             position: position,
-                        //             ..Default::default()
-                        //         },
-                        //         current_player: true,
-                        //     };
-                        //     network_manager.send_to_address_reliably(
-                        //         address,
-                        //         &NetworkMessage::PlayerEvent {
-                        //             index: index,
-                        //             event: spawn_event,
-                        //         },
-                        //     );
-                        // }
-                    }
+                    //     let spawn_event = PlayerEvent::SpawnPlayer {
+                    //         index: index,
+                    //         state: SerializablePlayerState {
+                    //             position: position,
+                    //             ..Default::default()
+                    //         },
+                    //         current_player: true,
+                    //     };
+                    //     network_manager.send_to_address_reliably(
+                    //         address,
+                    //         &NetworkMessage::PlayerEvent {
+                    //             index: index,
+                    //             event: spawn_event,
+                    //         },
+                    //     );
+                    // }
+                    // }
                 }
                 PlayerEvent::LookAround {
                     index,
@@ -299,23 +305,19 @@ impl Level {
                             yaw: yaw,
                             pitch: pitch,
                             shoot: shoot,
-                            fuel: fuel,
+                            // fuel: fuel,
                         };
-                        let previous_state = PlayerState {
-                            timestamp: timestamp,
-                            position: player.get_position(scene),
-                            velocity: player.get_velocity(scene),
-                            yaw: player.get_yaw(),
-                            pitch: player.get_pitch(),
-                            shoot: player.controller.shoot,
-                            fuel: player.flight_fuel,
-                        };
-                        player
-                            .controller
-                            .previous_states
-                            .retain(|state| state.timestamp > timestamp);
-                        player.controller.previous_states.push(previous_state);
-                        player.controller.new_state = Some(new_state);
+
+                        let length = player.controller.previous_states.len();
+                        let buffer_length = 2;
+                        if length >= buffer_length {
+                            player
+                                .controller
+                                .previous_states
+                                .drain(..length - (buffer_length - 1)); // -1 since we add another state to the buffer every frame (after this)
+
+                            player.controller.new_state = Some(new_state);
+                        }
                     }
                 }
                 PlayerEvent::DestroyBlock { index } => {
@@ -394,7 +396,7 @@ impl Level {
         let scene = &mut engine.scenes[self.scene];
         for player in self.players.iter_mut() {
             #[cfg(feature = "server")]
-            {
+            if elapsed_time % (SYNC_FREQUENCY as f32 * dt) < dt {
                 let position = player.get_position(&scene);
                 let velocity = player.get_velocity(&scene);
                 let state_message = NetworkMessage::PlayerEvent {
@@ -420,6 +422,25 @@ impl Level {
                 };
 
                 network_manager.send_to_all_unreliably(&state_message, 0);
+            }
+
+            #[cfg(not(feature = "server"))]
+            {
+                let timestamp = player
+                    .controller
+                    .new_state
+                    .as_ref()
+                    .map_or(0.0, |new_state| new_state.timestamp);
+                let previous_state = PlayerState {
+                    timestamp: timestamp,
+                    position: player.get_position(scene),
+                    velocity: player.get_velocity(scene),
+                    yaw: player.get_yaw(),
+                    pitch: player.get_pitch(),
+                    shoot: player.controller.shoot,
+                    // fuel: player.flight_fuel,
+                };
+                player.controller.previous_states.push(previous_state);
             }
 
             player.update(

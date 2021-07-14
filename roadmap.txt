@@ -5,3 +5,6 @@
 - Team scoring and k/d
 - Hitboxes
 - Animations
+- Crosshair
+- Spawn locations which can be added in editor
+- Diagnose level reset leak

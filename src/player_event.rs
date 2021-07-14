@@ -39,6 +39,7 @@ pub enum PlayerEvent {
     MoveUp {
         index: u32,
         active: bool,
+        fuel: u32,
     },
     Jump {
         index: u32,
