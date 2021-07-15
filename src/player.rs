@@ -51,7 +51,7 @@ use crate::{
 const MOVEMENT_SPEED: f32 = 1.5;
 const GRAVITY_SCALE: f32 = 0.5;
 const JET_SPEED: f32 = 0.012;
-pub const SYNC_FREQUENCY: u32 = 3;
+pub const SYNC_FREQUENCY: u32 = 1;
 
 #[derive(Default)]
 pub struct PlayerController {
@@ -65,9 +65,9 @@ pub struct PlayerController {
     pub dest_pitch: f32,
     pub dest_yaw: f32,
     pub shoot: bool,
-    pub new_state: Option<PlayerState>,
+    pub new_states: Vec<PlayerState>,
     pub previous_states: Vec<PlayerState>,
-    smoothing_speed: f32,
+    interpolated_movement_speed: f32,
 }
 
 pub struct Player {
@@ -220,6 +220,8 @@ impl Player {
                 shoot: state.shoot,
                 yaw: state.yaw,
                 pitch: state.pitch,
+                #[cfg(feature = "server")]
+                interpolated_movement_speed: MOVEMENT_SPEED,
                 ..Default::default()
             },
             first_person_model,
@@ -290,19 +292,19 @@ impl Player {
         // Change the velocity depending on the keys pressed.
         if self.controller.move_forward {
             // If we moving forward then add "look" vector of the pivot.
-            velocity += pivot.look_vector() * MOVEMENT_SPEED;
+            velocity += pivot.look_vector() * self.controller.interpolated_movement_speed;
         }
         if self.controller.move_backward {
             // If we moving backward then subtract "look" vector of the pivot.
-            velocity -= pivot.look_vector() * MOVEMENT_SPEED;
+            velocity -= pivot.look_vector() * self.controller.interpolated_movement_speed;
         }
         if self.controller.move_left {
             // If we moving left then add "side" vector of the pivot.
-            velocity += pivot.side_vector() * MOVEMENT_SPEED;
+            velocity += pivot.side_vector() * self.controller.interpolated_movement_speed;
         }
         if self.controller.move_right {
             // If we moving right then subtract "side" vector of the pivot.
-            velocity -= pivot.side_vector() * MOVEMENT_SPEED;
+            velocity -= pivot.side_vector() * self.controller.interpolated_movement_speed;
         }
 
         // Finally new linear velocity.
@@ -367,7 +369,7 @@ impl Player {
         //         .previous_states
         //         .drain(0..length - buffer_length + 1);
         // }
-        if let Some(new_state) = &self.controller.new_state {
+        if let Some(new_state) = &self.controller.new_states.first_mut() {
             // let minimum_distance = self
             //     .controller
             //     .previous_states
@@ -412,39 +414,44 @@ impl Player {
 
                 if pos_diff_mag > 0.0 {
                     println!("distance: {}", pos_diff_mag);
-                    let min_smooth_speed: f32 = MOVEMENT_SPEED * 0.5;
-                    let target_catchup_time: f32 = dt * 3.0;
+                    let min_smooth_speed: f32 = MOVEMENT_SPEED / 6.0;
+                    let target_catchup_time: f32 = 0.1;
 
-                    self.controller.smoothing_speed = f32::max(
-                        self.controller.smoothing_speed,
+                    self.controller.interpolated_movement_speed = f32::max(
+                        self.controller.interpolated_movement_speed,
                         f32::max(min_smooth_speed, pos_diff_mag / target_catchup_time),
                     );
-                    let max_move = dt * self.controller.smoothing_speed;
+
+                    let max_move = dt * self.controller.interpolated_movement_speed;
+
+                    // let max_tolerated_distance = MOVEMENT_SPEED * dt;
+                    // let min_move = MOVEMENT_SPEED * dt / 8.0;
+                    // let max_move =
+                    //     f32::max(min_move, (pos_diff_mag - max_tolerated_distance) / 6.0);
+
                     let move_dist = f32::min(pos_diff_mag, max_move);
                     pos_diff *= move_dist / pos_diff_mag;
 
                     let new_pos = Translation3::from(pos_diff) * (*body.position());
                     body.set_position(new_pos, true);
 
-                    // println!("previous states:");
                     // for previous_state in self.controller.previous_states.iter_mut() {
                     //     previous_state.position += pos_diff;
-                    //     // println!("{:?}", previous_state);
                     // }
 
                     if move_dist == pos_diff_mag {
-                        self.controller.smoothing_speed = 0.0;
+                        self.controller.interpolated_movement_speed = 0.0;
                         // self.controller
                         //     .previous_states
                         //     .remove(SYNC_FREQUENCY as usize);
-                        self.controller.new_state = None;
+                        self.controller.new_states.remove(0);
                     }
                 } else {
-                    self.controller.smoothing_speed = 0.0;
+                    self.controller.interpolated_movement_speed = 0.0;
                     // self.controller
                     //     .previous_states
                     //     .remove(SYNC_FREQUENCY as usize);
-                    self.controller.new_state = None;
+                    self.controller.new_states.remove(0);
                 }
             }
         }

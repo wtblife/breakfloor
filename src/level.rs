@@ -308,16 +308,13 @@ impl Level {
                             // fuel: fuel,
                         };
 
-                        let length = player.controller.previous_states.len();
-                        let buffer_length = 2;
+                        let length = player.controller.new_states.len();
+                        let buffer_length = 1;
                         if length >= buffer_length {
-                            player
-                                .controller
-                                .previous_states
-                                .drain(..length - (buffer_length - 1)); // -1 since we add another state to the buffer every frame (after this)
-
-                            player.controller.new_state = Some(new_state);
+                            player.controller.new_states.remove(0);
                         }
+
+                        player.controller.new_states.push(new_state);
                     }
                 }
                 PlayerEvent::DestroyBlock { index } => {
@@ -424,24 +421,23 @@ impl Level {
                 network_manager.send_to_all_unreliably(&state_message, 0);
             }
 
-            #[cfg(not(feature = "server"))]
-            {
-                let timestamp = player
-                    .controller
-                    .new_state
-                    .as_ref()
-                    .map_or(0.0, |new_state| new_state.timestamp);
-                let previous_state = PlayerState {
-                    timestamp: timestamp,
-                    position: player.get_position(scene),
-                    velocity: player.get_velocity(scene),
-                    yaw: player.get_yaw(),
-                    pitch: player.get_pitch(),
-                    shoot: player.controller.shoot,
-                    // fuel: player.flight_fuel,
-                };
-                player.controller.previous_states.push(previous_state);
+            let previous_state = PlayerState {
+                timestamp: 0.0,
+                position: player.get_position(scene),
+                velocity: player.get_velocity(scene),
+                yaw: player.get_yaw(),
+                pitch: player.get_pitch(),
+                shoot: player.controller.shoot,
+                // fuel: player.flight_fuel,
+            };
+
+            let length = player.controller.previous_states.len();
+            let buffer_length = 1; // TODO: Make this longer on server for lag compensation
+
+            if length >= buffer_length {
+                player.controller.previous_states.remove(0);
             }
+            player.controller.previous_states.push(previous_state);
 
             player.update(
                 dt,
