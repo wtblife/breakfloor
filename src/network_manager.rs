@@ -38,6 +38,7 @@ impl NetworkManager {
 
         let config = Config {
             heartbeat_interval: Some(Duration::from_millis(500)),
+            rtt_max_value: 350,
             ..Default::default()
         };
 
@@ -85,7 +86,7 @@ impl NetworkManager {
                     let bincode = DefaultOptions::new()
                         .with_fixint_encoding()
                         .allow_trailing_bytes()
-                        .with_limit(2048);
+                        .with_limit(1024);
 
                     if let Ok(message) =
                         &mut bincode.deserialize::<NetworkMessage>(packet.payload())

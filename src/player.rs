@@ -51,7 +51,7 @@ use crate::{
 const MOVEMENT_SPEED: f32 = 1.5;
 const GRAVITY_SCALE: f32 = 0.5;
 const JET_SPEED: f32 = 0.012;
-pub const SYNC_FREQUENCY: u32 = 1;
+pub const SYNC_FREQUENCY: u32 = 3;
 
 #[derive(Default)]
 pub struct PlayerController {
@@ -67,7 +67,7 @@ pub struct PlayerController {
     pub shoot: bool,
     pub new_states: Vec<PlayerState>,
     pub previous_states: Vec<PlayerState>,
-    interpolated_movement_speed: f32,
+    smoothing_speed: f32,
 }
 
 pub struct Player {
@@ -220,8 +220,6 @@ impl Player {
                 shoot: state.shoot,
                 yaw: state.yaw,
                 pitch: state.pitch,
-                #[cfg(feature = "server")]
-                interpolated_movement_speed: MOVEMENT_SPEED,
                 ..Default::default()
             },
             first_person_model,
@@ -292,19 +290,19 @@ impl Player {
         // Change the velocity depending on the keys pressed.
         if self.controller.move_forward {
             // If we moving forward then add "look" vector of the pivot.
-            velocity += pivot.look_vector() * self.controller.interpolated_movement_speed;
+            velocity += pivot.look_vector() * MOVEMENT_SPEED;
         }
         if self.controller.move_backward {
             // If we moving backward then subtract "look" vector of the pivot.
-            velocity -= pivot.look_vector() * self.controller.interpolated_movement_speed;
+            velocity -= pivot.look_vector() * MOVEMENT_SPEED;
         }
         if self.controller.move_left {
             // If we moving left then add "side" vector of the pivot.
-            velocity += pivot.side_vector() * self.controller.interpolated_movement_speed;
+            velocity += pivot.side_vector() * MOVEMENT_SPEED;
         }
         if self.controller.move_right {
             // If we moving right then subtract "side" vector of the pivot.
-            velocity -= pivot.side_vector() * self.controller.interpolated_movement_speed;
+            velocity -= pivot.side_vector() * MOVEMENT_SPEED;
         }
 
         // Finally new linear velocity.
@@ -413,16 +411,16 @@ impl Player {
                 let pos_diff_mag = pos_diff.magnitude();
 
                 if pos_diff_mag > 0.0 {
-                    println!("distance: {}", pos_diff_mag);
+                    // println!("distance: {}", pos_diff_mag);
                     let min_smooth_speed: f32 = MOVEMENT_SPEED / 6.0;
-                    let target_catchup_time: f32 = 0.1;
+                    let target_catchup_time: f32 = 0.250;
 
-                    self.controller.interpolated_movement_speed = f32::max(
-                        self.controller.interpolated_movement_speed,
+                    self.controller.smoothing_speed = f32::max(
+                        self.controller.smoothing_speed,
                         f32::max(min_smooth_speed, pos_diff_mag / target_catchup_time),
                     );
 
-                    let max_move = dt * self.controller.interpolated_movement_speed;
+                    let max_move = dt * self.controller.smoothing_speed;
 
                     // let max_tolerated_distance = MOVEMENT_SPEED * dt;
                     // let min_move = MOVEMENT_SPEED * dt / 8.0;
@@ -440,18 +438,18 @@ impl Player {
                     // }
 
                     if move_dist == pos_diff_mag {
-                        self.controller.interpolated_movement_speed = 0.0;
+                        self.controller.smoothing_speed = 0.0;
                         // self.controller
                         //     .previous_states
                         //     .remove(SYNC_FREQUENCY as usize);
-                        self.controller.new_states.remove(0);
+                        // self.controller.new_states.remove(0);
                     }
                 } else {
-                    self.controller.interpolated_movement_speed = 0.0;
+                    self.controller.smoothing_speed = 0.0;
                     // self.controller
                     //     .previous_states
                     //     .remove(SYNC_FREQUENCY as usize);
-                    self.controller.new_states.remove(0);
+                    // self.controller.new_states.remove(0);
                 }
             }
         }
