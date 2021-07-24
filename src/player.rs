@@ -67,7 +67,7 @@ pub struct PlayerController {
     pub shoot: bool,
     pub new_states: Vec<PlayerState>,
     pub previous_states: Vec<PlayerState>,
-    smoothing_speed: f32,
+    pub smoothing_speed: f32,
 }
 
 pub struct Player {
@@ -390,14 +390,14 @@ impl Player {
             //     true,
             // );
             // self.controller.new_state = None;
-            if let Some(previous_state) = self.controller.previous_states.last_mut() {
+            if let Some(previous_state) = self.controller.previous_states.first_mut() {
                 // Only sync vertical velocity
                 let mut velocity_diff: Vector3<f32> =
                     Vector3::new(0.0, new_state.velocity.y - previous_state.velocity.y, 0.0);
                 let velocity_diff_mag = velocity_diff.magnitude();
 
                 if velocity_diff_mag > 0.0 {
-                    let max_change = 9.8 * GRAVITY_SCALE * dt as f32;
+                    let max_change = 9.8 * GRAVITY_SCALE * dt / 6.0 as f32;
                     let velocity_change = f32::min(velocity_diff_mag, max_change);
                     velocity_diff *= velocity_change / velocity_diff_mag;
                     previous_state.velocity += velocity_diff;
@@ -411,9 +411,8 @@ impl Player {
                 let pos_diff_mag = pos_diff.magnitude();
 
                 if pos_diff_mag > 0.0 {
-                    // println!("distance: {}", pos_diff_mag);
-                    let min_smooth_speed: f32 = MOVEMENT_SPEED / 6.0;
-                    let target_catchup_time: f32 = 0.250;
+                    let min_smooth_speed: f32 = MOVEMENT_SPEED * dt / 6.0;
+                    let target_catchup_time: f32 = 0.15;
 
                     self.controller.smoothing_speed = f32::max(
                         self.controller.smoothing_speed,
@@ -422,7 +421,7 @@ impl Player {
 
                     let max_move = dt * self.controller.smoothing_speed;
 
-                    // let max_tolerated_distance = MOVEMENT_SPEED * dt;
+                    // let max_tolerated_distance = MOVEMENT_SPEED * dt * 3.0;
                     // let min_move = MOVEMENT_SPEED * dt / 8.0;
                     // let max_move =
                     //     f32::max(min_move, (pos_diff_mag - max_tolerated_distance) / 6.0);
@@ -433,23 +432,20 @@ impl Player {
                     let new_pos = Translation3::from(pos_diff) * (*body.position());
                     body.set_position(new_pos, true);
 
-                    // for previous_state in self.controller.previous_states.iter_mut() {
-                    //     previous_state.position += pos_diff;
-                    // }
+                    for previous_state in self.controller.previous_states.iter_mut() {
+                        previous_state.position += pos_diff;
+                    }
 
                     if move_dist == pos_diff_mag {
                         self.controller.smoothing_speed = 0.0;
-                        // self.controller
-                        //     .previous_states
-                        //     .remove(SYNC_FREQUENCY as usize);
-                        // self.controller.new_states.remove(0);
+                        self.controller.new_states.remove(0);
                     }
                 } else {
                     self.controller.smoothing_speed = 0.0;
                     // self.controller
                     //     .previous_states
                     //     .remove(SYNC_FREQUENCY as usize);
-                    // self.controller.new_states.remove(0);
+                    self.controller.new_states.remove(0);
                 }
             }
         }

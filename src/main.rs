@@ -64,11 +64,21 @@ use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 
-#[derive(Default, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 pub struct Settings {
     look_sensitivity: f32,
     vsync: bool,
     fullscreen: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            look_sensitivity: 0.5,
+            vsync: false,
+            fullscreen: false,
+        }
+    }
 }
 
 fn read_settings_from_file<P: AsRef<Path>>(path: P) -> Result<Settings, Box<dyn Error>> {

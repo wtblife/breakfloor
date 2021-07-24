@@ -6,5 +6,9 @@
 - Hitboxes
 - Animations
 - Crosshair
-- Spawn locations which can be added in editor
 - Diagnose level reset leak
+- Spawn locations which can be added in editor
+- Server config
+    - Tick rate
+    - Sync frequency
+    - Level

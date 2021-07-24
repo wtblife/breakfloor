@@ -1,6 +1,6 @@
 use bincode::{deserialize, serialize, DefaultOptions, Options};
 use crossbeam_channel::{Receiver, Sender};
-use laminar::{Config, ErrorKind, Packet, Socket, SocketEvent};
+use laminar::{Config, ErrorKind, Packet, Socket, SocketEvent, VirtualConnection};
 use serde::{Deserialize, Serialize};
 use std::{
     convert::TryInto,
@@ -38,7 +38,6 @@ impl NetworkManager {
 
         let config = Config {
             heartbeat_interval: Some(Duration::from_millis(500)),
-            rtt_max_value: 350,
             ..Default::default()
         };
 
@@ -93,7 +92,6 @@ impl NetworkManager {
                     {
                         match message {
                             NetworkMessage::PlayerEvent { index, event } => {
-                                // TODO: Use index from connection on server. Must be set on outer index and inner event
                                 if let Some(level) = &mut game.level {
                                     match event {
                                         PlayerEvent::ShootWeapon {
@@ -103,6 +101,7 @@ impl NetworkManager {
                                             pitch,
                                         } => {
                                             #[cfg(feature = "server")]
+                                            // Use index from connection on server. Must be set on outer index and inner event
                                             if let Some(net_index) =
                                                 self.get_index_for_address(packet.addr())
                                             {

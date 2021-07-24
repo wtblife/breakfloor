@@ -312,6 +312,7 @@ impl Level {
                         let buffer_length = 1;
                         if length >= buffer_length {
                             player.controller.new_states.remove(0);
+                            player.controller.smoothing_speed = 0.0;
                         }
 
                         player.controller.new_states.push(new_state);
@@ -432,7 +433,7 @@ impl Level {
             };
 
             let length = player.controller.previous_states.len();
-            let buffer_length = 1; // TODO: Make this longer on server for lag compensation
+            let buffer_length = 3;
 
             if length >= buffer_length {
                 player.controller.previous_states.remove(0);
