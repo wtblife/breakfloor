@@ -411,7 +411,7 @@ impl Player {
                 let pos_diff_mag = pos_diff.magnitude();
 
                 if pos_diff_mag > 0.0 {
-                    let min_smooth_speed: f32 = MOVEMENT_SPEED * dt / 6.0;
+                    let min_smooth_speed: f32 = MOVEMENT_SPEED / 6.0;
                     let target_catchup_time: f32 = 0.15;
 
                     self.controller.smoothing_speed = f32::max(
