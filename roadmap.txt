@@ -1,3 +1,4 @@
+- Load level resource in separate thread to prevent blocking game loop
 - Fuel indicator/gauge
 - Teams
     - can only damage other team

@@ -17,7 +17,7 @@ use laminar::{Config, ErrorKind, Packet, Socket, SocketEvent};
 use player::PlayerState;
 use rg3d::{
     core::{
-        algebra::{Isometry3, Translation3, UnitQuaternion, Vector3},
+        algebra::{Isometry3, Translation3, UnitQuaternion, Vector2, Vector3},
         color::Color,
         color_gradient::{ColorGradient, GradientPoint},
         math::ray::Ray,
@@ -25,10 +25,18 @@ use rg3d::{
         pool::{Handle, Pool},
         profiler::print,
     },
-    engine::{resource_manager::ResourceManager, Engine},
+    engine::{framework::UiNode, resource_manager::ResourceManager, Engine},
     event::{DeviceEvent, ElementState, Event, MouseButton, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    gui::node::StubNode,
+    gui::{
+        grid::GridBuilder,
+        message::{MessageDirection, TextMessage},
+        node::StubNode,
+        scroll_bar::ScrollBarBuilder,
+        text::TextBuilder,
+        widget::WidgetBuilder,
+        VerticalAlignment,
+    },
     physics::{dynamics::RigidBodyBuilder, geometry::ColliderBuilder},
     scene::{
         base::BaseBuilder,
@@ -36,7 +44,6 @@ use rg3d::{
         graph::Graph,
         mesh::{MeshBuilder, RenderPath},
         node::Node,
-        particle_system::{BaseEmitterBuilder, ParticleSystemBuilder, SphereEmitterBuilder},
         physics::RayCastOptions,
         transform::TransformBuilder,
     },
@@ -65,6 +72,7 @@ use std::fs::File;
 use std::io::BufReader;
 
 #[derive(Deserialize, Debug)]
+#[serde(default)]
 pub struct Settings {
     look_sensitivity: f32,
     vsync: bool,
@@ -125,6 +133,8 @@ fn main() {
         })
         .unwrap();
 
+    let mut interface = create_ui(&mut engine);
+
     #[cfg(not(feature = "server"))]
     {
         let window = engine.get_window();
@@ -141,7 +151,7 @@ fn main() {
     let mut cursor_in_window = true;
 
     let mut network_manager = NetworkManager::new();
-    let mut game = rg3d::futures::executor::block_on(Game::new(&mut engine, settings));
+    let mut game = rg3d::core::futures::executor::block_on(Game::new(&mut engine, settings));
 
     event_loop.run(move |event, _, control_flow| {
         network_manager.handle_events(&mut engine, &mut game);
@@ -161,11 +171,31 @@ fn main() {
                     dt -= TIMESTEP;
                     elapsed_time += TIMESTEP;
 
+                    let fps = engine.renderer.get_statistics().frames_per_second;
+                    #[cfg(not(feature = "server"))]
+                    engine.user_interface.send_message(TextMessage::text(
+                        interface.fps,
+                        MessageDirection::ToWidget,
+                        format!("FPS: {}", fps),
+                    ));
+
                     // Run our game's logic.
-                    game.update(&mut engine, TIMESTEP, &mut network_manager, elapsed_time);
+                    game.update(
+                        &mut engine,
+                        TIMESTEP,
+                        &mut network_manager,
+                        elapsed_time,
+                        &interface,
+                    );
 
                     // Update engine each frame.
                     engine.update(TIMESTEP);
+                }
+
+                while let Some(ui_message) = engine.user_interface.poll_message() {
+                    match ui_message.data() {
+                        _ => (),
+                    }
                 }
 
                 // Rendering must be explicitly requested and handled after RedrawRequested event is received.
@@ -174,7 +204,7 @@ fn main() {
             #[cfg(not(feature = "server"))]
             Event::RedrawRequested(_) => {
                 // Render at max speed - it is not tied to the game code.
-                engine.render(TIMESTEP).unwrap();
+                engine.render().unwrap();
             }
             #[cfg(not(feature = "server"))]
             Event::WindowEvent { event, .. } => match event {
@@ -192,6 +222,7 @@ fn main() {
                     // renderer knows nothing about window size - it must be notified
                     // directly when window size has changed.
                     engine.renderer.set_frame_size(size.into());
+                    // interface = create_ui(&mut engine);
                 }
                 WindowEvent::Focused(focus) => {
                     focused = focus;
@@ -353,4 +384,26 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
             _ => (),
         }
     }
+}
+
+pub struct Interface {
+    fps: Handle<UiNode>,
+    fuel: Handle<UiNode>,
+}
+
+fn create_ui(engine: &mut GameEngine) -> Interface {
+    let window_width = engine.renderer.get_frame_size().0 as f32;
+    let window_height = engine.renderer.get_frame_size().1 as f32;
+
+    let ctx = &mut engine.user_interface.build_ctx();
+
+    // First of all create debug text that will show title of example and current FPS.
+    let fps = TextBuilder::new(WidgetBuilder::new()).build(ctx);
+    let fuel = TextBuilder::new(
+        WidgetBuilder::new()
+            .with_desired_position(Vector2::new(window_width - 100.0, window_height - 25.0)),
+    )
+    .build(ctx);
+
+    Interface { fps, fuel }
 }

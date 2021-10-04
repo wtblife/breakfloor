@@ -1,6 +1,7 @@
 use core::time;
 use std::{
     net::SocketAddr,
+    path::PathBuf,
     sync::mpsc::{self, channel, Receiver, Sender},
     thread::spawn,
 };
@@ -11,7 +12,8 @@ use rg3d::{
         color::Color,
         pool::{Handle, Pool},
     },
-    scene::{node::Node, ColliderHandle, Scene},
+    engine::{resource_manager::MaterialSearchOptions, ColliderHandle},
+    scene::{node::Node, Scene},
 };
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +22,7 @@ use crate::{
     network_manager::{NetworkManager, NetworkMessage},
     player::{self, Player, PlayerState, SYNC_FREQUENCY},
     player_event::{PlayerEvent, SerializablePlayerState, SerializableVector},
-    GameEngine,
+    GameEngine, Interface,
 };
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -41,28 +43,26 @@ impl Level {
     pub async fn new(engine: &mut GameEngine, scene_name: &str, state: LevelState) -> Self {
         let mut scene = Scene::new();
 
-        // engine
-        //     .resource_manager
-        //     .state()
-        //     .set_textures_path("data/textures");
-
         // Load a scene resource and create its instance.
         engine
             .resource_manager
-            .request_model(["data/levels/", scene_name, ".rgs"].concat())
+            .request_model(
+                ["data/levels/", scene_name, ".rgs"].concat(),
+                MaterialSearchOptions::UsePathDirectly,
+            )
             .await
             .unwrap()
             .instantiate_geometry(&mut scene);
 
-        for (handle, node) in scene.graph.pair_iter() {
-            if let Some(body_handle) = scene.physics_binder.body_of(handle) {
-                if let Some(body) = scene.physics.bodies.get(body_handle.into()) {
-                    for &collider_handle in body.colliders().iter() {
-                        scene.physics.colliders[collider_handle].friction = 0.0;
-                    }
-                }
-            }
-        }
+        // for (handle, node) in scene.graph.pair_iter() {
+        //     if let Some(body_handle) = scene.physics_binder.body_of(handle) {
+        //         if let Some(body) = scene.physics.bodies.get(body_handle.into()) {
+        //             for &collider_handle in body.colliders().iter() {
+        //                 scene.physics.colliders[collider_handle].friction = 0.0;
+        //             }
+        //         }
+        //     }
+        // }
 
         scene.ambient_lighting_color = Color::opaque(255, 255, 255);
 
@@ -118,6 +118,7 @@ impl Level {
         network_manager: &mut NetworkManager,
         elapsed_time: f32,
         game_event_sender: &Sender<GameEvent>,
+        interface: &Interface,
     ) {
         while let Ok(action) = self.receiver.try_recv() {
             // if let PlayerEvent::UpdateState { .. } = action {
@@ -364,7 +365,7 @@ impl Level {
                     state,
                     current_player,
                 } => {
-                    rg3d::futures::executor::block_on(self.spawn_player(
+                    rg3d::core::futures::executor::block_on(self.spawn_player(
                         engine,
                         index,
                         PlayerState {
@@ -391,8 +392,8 @@ impl Level {
             }
         }
 
-        let scene = &mut engine.scenes[self.scene];
         for player in self.players.iter_mut() {
+            let scene = &mut engine.scenes[self.scene];
             #[cfg(feature = "server")]
             if elapsed_time % (SYNC_FREQUENCY as f32 * dt) < dt {
                 let position = player.get_position(&scene);
@@ -442,10 +443,12 @@ impl Level {
 
             player.update(
                 dt,
-                scene,
+                engine,
+                self.scene,
                 engine.resource_manager.clone(),
                 network_manager,
                 &self.sender,
+                interface,
             );
         }
     }
@@ -497,8 +500,8 @@ impl Level {
 
         if handle.is_some() && scene.graph.is_valid_handle(handle) {
             if let Some(body) = scene.physics_binder.body_of(handle) {
+                scene.physics.remove_body(body);
                 scene.remove_node(handle);
-                scene.physics.remove_body(body.into());
 
                 #[cfg(feature = "server")]
                 self.state.destroyed_blocks.push(index);

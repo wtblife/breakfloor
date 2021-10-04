@@ -1,0 +1,174 @@
+[INFO]: Shader FlatShader_VertexShader compiled!
+
+[INFO]: Shader FlatShader_FragmentShader compiled!
+
+[INFO]: Shader FlatShader linked!
+
+[INFO]: Shader SsaoShader_VertexShader compiled!
+
+[INFO]: Shader SsaoShader_FragmentShader compiled!
+
+[INFO]: Shader SsaoShader linked!
+
+[INFO]: Shader DeferredLightShader_VertexShader compiled!
+
+[INFO]: Shader DeferredLightShader_FragmentShader compiled!
+
+[INFO]: Shader DeferredLightShader linked!
+
+[INFO]: Shader DeferredLightShader_VertexShader compiled!
+
+[INFO]: Shader DeferredLightShader_FragmentShader compiled!
+
+[INFO]: Shader DeferredLightShader linked!
+
+[INFO]: Shader DeferredLightShader_VertexShader compiled!
+
+[INFO]: Shader DeferredLightShader_FragmentShader compiled!
+
+[INFO]: Shader DeferredLightShader linked!
+
+[INFO]: Shader AmbientLightShader_VertexShader compiled!
+
+[INFO]: Shader AmbientLightShader_FragmentShader compiled!
+
+[INFO]: Shader AmbientLightShader linked!
+
+[INFO]: Shader FlatShader_VertexShader compiled!
+
+[INFO]: Shader FlatShader_FragmentShader compiled!
+
+[INFO]: Shader FlatShader linked!
+
+[INFO]: Shader SkyboxShader_VertexShader compiled!
+
+[INFO]: Shader SkyboxShader_FragmentShader compiled!
+
+[INFO]: Shader SkyboxShader linked!
+
+[INFO]: Shader SpotShadowMapShader_VertexShader compiled!
+
+[INFO]: Shader SpotShadowMapShader_FragmentShader compiled!
+
+[INFO]: Shader SpotShadowMapShader linked!
+
+[INFO]: Shader PointShadowMapShader_VertexShader compiled!
+
+[INFO]: Shader PointShadowMapShader_FragmentShader compiled!
+
+[INFO]: Shader PointShadowMapShader linked!
+
+[INFO]: Shader SpotVolumetricLight_VertexShader compiled!
+
+[INFO]: Shader SpotVolumetricLight_FragmentShader compiled!
+
+[INFO]: Shader SpotVolumetricLight linked!
+
+[INFO]: Shader PointVolumetricLight_VertexShader compiled!
+
+[INFO]: Shader PointVolumetricLight_FragmentShader compiled!
+
+[INFO]: Shader PointVolumetricLight linked!
+
+[INFO]: Shader FlatShader_VertexShader compiled!
+
+[INFO]: Shader FlatShader_FragmentShader compiled!
+
+[INFO]: Shader FlatShader linked!
+
+[INFO]: Shader FlatShader_VertexShader compiled!
+
+[INFO]: Shader FlatShader_FragmentShader compiled!
+
+[INFO]: Shader FlatShader linked!
+
+[INFO]: Shader FlatShader_VertexShader compiled!
+
+[INFO]: Shader FlatShader_FragmentShader compiled!
+
+[INFO]: Shader FlatShader linked!
+
+[INFO]: Shader UIShader_VertexShader compiled!
+
+[INFO]: Shader UIShader_FragmentShader compiled!
+
+[INFO]: Shader UIShader linked!
+
+[INFO]: Shader ParticleSystemShader_VertexShader compiled!
+
+[INFO]: Shader ParticleSystemShader_FragmentShader compiled!
+
+[INFO]: Shader ParticleSystemShader linked!
+
+[INFO]: Shader DebugShader_VertexShader compiled!
+
+[INFO]: Shader DebugShader_FragmentShader compiled!
+
+[INFO]: Shader DebugShader linked!
+
+[INFO]: Shader ForwardShader_VertexShader compiled!
+
+[INFO]: Shader ForwardShader_FragmentShader compiled!
+
+[INFO]: Shader ForwardShader linked!
+
+[INFO]: Shader FXAAShader_VertexShader compiled!
+
+[INFO]: Shader FXAAShader_FragmentShader compiled!
+
+[INFO]: Shader FXAAShader linked!
+
+[INFO]: Shader SpriteShader2D_VertexShader compiled!
+
+[INFO]: Shader SpriteShader2D_FragmentShader compiled!
+
+[INFO]: Shader SpriteShader2D linked!
+
+[INFO]: Texture "data/textures/Block.png" is loaded in 351.9µs!
+[INFO]: Starting resolve...
+[INFO]: Resolving graph...
+[INFO]: Original handles resolved!
+[INFO]: Checking integrity...
+[INFO]: Integrity restored for 0 instances! 0 new nodes were added!
+[INFO]: Graph resolved successfully!
+[INFO]: Resolving animations...
+[INFO]: Animations resolved successfully!
+[INFO]: Resolve succeeded!
+[INFO]: Model "data/levels/quadrants.rgs" is loaded!
+[INFO]: Resource data/levels/quadrants.rgs was successfully embedded into physics world!
+[INFO]: Resource data/levels/quadrants.rgs was successfully embedded into physics world!
+[INFO]: Trying to load "data/models/shooting.fbx"
+[ERROR]: Unable to load texture "data/textures\\gun_dDo_n.tga"! Reason FileLoadError(Io(Os { code: 2, kind: NotFound, message: "The system cannot find the file specified." }))
+[ERROR]: Unable to load texture "data/textures\\soldier_dDo_n.tga"! Reason FileLoadError(Io(Os { code: 2, kind: NotFound, message: "The system cannot find the file specified." }))
+[INFO]: FBX "data/models/shooting.fbx" loaded in 72 ms
+	- Parsing - 37 ms
+	- DOM Prepare - 7 ms
+	- Conversion - 26 ms
+[INFO]: Model "data/models/shooting.fbx" is loaded!
+[INFO]: Starting resolve...
+[INFO]: Resolving graph...
+[ERROR]: Unable to load texture "./data/textures/soldier_dDo_n.tga"! Reason FileLoadError(Io(Os { code: 2, kind: NotFound, message: "The system cannot find the file specified." }))
+[ERROR]: Unable to load texture "./data/textures/gun_dDo_n.tga"! Reason FileLoadError(Io(Os { code: 2, kind: NotFound, message: "The system cannot find the file specified." }))
+[INFO]: Original handles resolved!
+[INFO]: Checking integrity...
+[INFO]: Integrity restored for 1 instances! 0 new nodes were added!
+[INFO]: Graph resolved successfully!
+[INFO]: Resolving animations...
+[INFO]: Animations resolved successfully!
+[INFO]: Resolve succeeded!
+[INFO]: Model "data/models/shooting.rgs" is loaded!
+[INFO]: Resource data/models/shooting.rgs was successfully embedded into physics world!
+[INFO]: Resource data/models/shooting.rgs was successfully embedded into physics world!
+[INFO]: Texture "data/textures\\gun_dDo_d.tga" is loaded in 46.9957ms!
+[INFO]: Texture "./data/textures/gun_dDo_d.tga" is loaded in 67.3111ms!
+[INFO]: Texture "data/textures\\soldier_dDo_d.tga" is loaded in 207.1908ms!
+[INFO]: Texture "data/textures/skybox/right.png" is loaded in 241.5573ms!
+[INFO]: Texture "data/textures/skybox/front.png" is loaded in 248.3991ms!
+[INFO]: Texture "data/textures/skybox/back.png" is loaded in 255.8933ms!
+[INFO]: Texture "./data/textures/soldier_dDo_d.tga" is loaded in 305.7833ms!
+[INFO]: Texture "data/textures/skybox/top.png" is loaded in 297.8124ms!
+[INFO]: Texture "data/textures/skybox/left.png" is loaded in 316.3508ms!
+[INFO]: Texture "data/textures/skybox/down.png" is loaded in 267.3268ms!
+[INFO]: Sound buffer "data/sounds/laser4.ogg" is loaded!
+[INFO]: Texture resource "./data/textures/gun_dDo_d.tga" destroyed because it not used anymore!
+[INFO]: Texture resource "./data/textures/soldier_dDo_d.tga" destroyed because it not used anymore!

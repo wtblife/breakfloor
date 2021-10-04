@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     level::{Level, LevelState},
     network_manager::{NetworkManager, NetworkMessage},
-    GameEngine, Settings,
+    GameEngine, Interface, Settings,
 };
 
 pub struct Game {
@@ -29,7 +29,7 @@ impl Game {
             level = Some(
                 Level::new(
                     engine,
-                    "block_scene_2",
+                    "quadrants",
                     LevelState {
                         destroyed_blocks: Vec::new(),
                     },
@@ -54,16 +54,23 @@ impl Game {
         dt: f32,
         network_manager: &mut NetworkManager,
         elapsed_time: f32,
+        interface: &Interface,
     ) {
         while let Ok(event) = self.event_receiver.try_recv() {
             match event {
                 GameEvent::Connected => (),
                 GameEvent::LoadLevel { level, state } => {
-                    let new_level = rg3d::futures::executor::block_on(Level::new(
+                    std::thread::spawn(move || {
+                        // Scene will be loaded in separate thread.
+                        // futures::executor::block_on(SceneLoader::load_with(resource_manager, context))
+                    });
+
+                    let new_level = rg3d::core::futures::executor::block_on(Level::new(
                         engine,
                         &level,
                         state.clone(),
                     ));
+
                     if let Some(level) = &mut self.level {
                         level.clean_up(engine);
                     }
@@ -82,6 +89,7 @@ impl Game {
                         },
                     });
                 }
+                GameEvent::LoadedLevel => {}
                 #[cfg(feature = "server")]
                 GameEvent::Joined => {}
                 #[cfg(not(feature = "server"))]
@@ -99,6 +107,7 @@ impl Game {
                 network_manager,
                 elapsed_time,
                 &self.event_sender,
+                interface,
             );
         }
     }
@@ -116,5 +125,6 @@ pub enum GameEvent {
         level: String, // Sent from server to tell client what to load
         state: LevelState,
     },
+    LoadedLevel,
     Joined,
 }

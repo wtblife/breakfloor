@@ -1,43 +1,51 @@
 use bincode::serialize;
 use rg3d::{
     core::{
-        algebra::{Isometry, Matrix3, Transform3, Translation3, UnitQuaternion, Vector3},
+        algebra::{Matrix3, Translation3, UnitQuaternion, Vector3},
         color::Color,
         color_gradient::{ColorGradient, GradientPoint},
-        math::{ray::Ray, Matrix3Ext, Matrix4Ext, Vector3Ext},
+        math::{ray::Ray, Vector3Ext},
         numeric_range::NumericRange,
         pool::Handle,
     },
-    engine::resource_manager::{ResourceManager, SharedSoundBuffer},
+    engine::{
+        resource_manager::{MaterialSearchOptions, ResourceManager},
+        ColliderHandle, RigidBodyHandle,
+    },
     event::ElementState,
+    gui::message::{MessageDirection, TextMessage},
+    material::{Material, PropertyValue},
     physics::{
         dynamics::{RigidBody, RigidBodyBuilder},
         geometry::ColliderBuilder,
+        prelude::CoefficientCombineRule,
     },
-    renderer::surface::{SurfaceBuilder, SurfaceSharedData},
-    resource::{model, texture::TextureWrapMode},
+    resource::texture::TextureWrapMode,
     scene::{
         base::BaseBuilder,
-        camera::{self, CameraBuilder, SkyBox},
+        camera::{CameraBuilder, SkyBox, SkyBoxBuilder},
         graph::Graph,
-        mesh::{MeshBuilder, RenderPath},
+        mesh::{
+            surface::{SurfaceBuilder, SurfaceData},
+            MeshBuilder, RenderPath,
+        },
         node::Node,
-        particle_system::{BaseEmitterBuilder, ParticleSystemBuilder, SphereEmitterBuilder},
+        particle_system::ParticleSystemBuilder,
         physics::RayCastOptions,
         transform::TransformBuilder,
-        ColliderHandle, RigidBodyHandle, Scene,
+        Scene,
     },
     sound::{
-        buffer::SoundBuffer,
+        buffer::SoundBufferResource,
         source::{generic::GenericSourceBuilder, spatial::SpatialSourceBuilder, Status},
     },
 };
 use std::{
     net::SocketAddr,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         mpsc::{self, Sender},
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
     },
 };
 
@@ -45,12 +53,14 @@ use crate::{
     level::Level,
     network_manager::{self, NetworkManager, NetworkMessage},
     player_event::PlayerEvent,
-    GameEngine,
+    GameEngine, Interface,
 };
 
 const MOVEMENT_SPEED: f32 = 1.5;
 const GRAVITY_SCALE: f32 = 0.5;
 const JET_SPEED: f32 = 0.012;
+
+const MAX_FUEL: u32 = 200;
 pub const SYNC_FREQUENCY: u32 = 3;
 
 #[derive(Default)]
@@ -84,7 +94,7 @@ pub struct Player {
     pub controller: PlayerController,
     third_person_model: Handle<Node>,
     first_person_model: Handle<Node>,
-    firing_sound_buffer: SharedSoundBuffer,
+    firing_sound_buffer: SoundBufferResource,
     pub flight_fuel: u32,
     current_player: bool,
 }
@@ -126,7 +136,10 @@ impl Player {
     ) -> Self {
         // TODO: Resources should only need to be loaded once and shared among players
         let model_resource = resource_manager
-            .request_model("data/models/shooting.rgs")
+            .request_model(
+                "data/models/shooting.rgs",
+                MaterialSearchOptions::MaterialsDirectory(PathBuf::from("data/textures")),
+            )
             .await
             .unwrap();
 
@@ -184,16 +197,27 @@ impl Player {
         let rigid_body = scene.physics.add_body(
             RigidBodyBuilder::new_dynamic()
                 .lock_rotations() // We don't want a bot to tilt.
-                .translation(state.position.x, state.position.y, state.position.z) // Set desired position.
-                .linvel(state.velocity.x, state.velocity.y, state.velocity.z)
+                .translation(Vector3::new(
+                    state.position.x,
+                    state.position.y,
+                    state.position.z,
+                )) // Set desired position.
+                .linvel(Vector3::new(
+                    state.velocity.x,
+                    state.velocity.y,
+                    state.velocity.z,
+                ))
                 .gravity_scale(GRAVITY_SCALE)
                 .build(),
         );
 
         // Add capsule collider for the rigid body.
         let collider = scene.physics.add_collider(
-            ColliderBuilder::capsule_y(0.25, 0.20).friction(0.0).build(),
-            rigid_body,
+            ColliderBuilder::capsule_y(0.25, 0.20)
+                .friction_combine_rule(CoefficientCombineRule::Min)
+                .friction(0.0)
+                .build(),
+            &rigid_body,
         );
 
         // Bind pivot with rigid body. Scene will automatically sync transform of the pivot
@@ -225,7 +249,7 @@ impl Player {
             first_person_model,
             third_person_model,
             firing_sound_buffer,
-            flight_fuel: 200,
+            flight_fuel: MAX_FUEL,
             current_player,
         }
     }
@@ -242,13 +266,16 @@ impl Player {
     pub fn update(
         &mut self,
         dt: f32,
-        scene: &mut Scene,
+        engine: &mut GameEngine,
+        scene: Handle<Scene>,
         resource_manager: ResourceManager,
         network_manager: &mut NetworkManager,
         event_sender: &Sender<PlayerEvent>,
-        // client_address: &mut String,
-        // action_sender: &mpsc::Sender<PlayerEvent>,
+        interface: &Interface, // client_address: &mut String,
+                               // action_sender: &mpsc::Sender<PlayerEvent>
     ) {
+        let scene = &mut engine.scenes[scene];
+
         self.shot_timer = (self.shot_timer - dt).max(0.0);
 
         // `follow` method defined in Vector3Ext trait and it just increases or
@@ -273,11 +300,7 @@ impl Player {
         }
 
         // Borrow rigid body in the physics.
-        let body = scene
-            .physics
-            .bodies
-            .get_mut(self.rigid_body.into())
-            .unwrap();
+        let body = scene.physics.bodies.get_mut(&self.rigid_body).unwrap();
 
         #[cfg(not(feature = "server"))]
         self.interpolate_state(body, dt);
@@ -358,6 +381,12 @@ impl Player {
                 })
                 .unwrap();
         }
+
+        engine.user_interface.send_message(TextMessage::text(
+            interface.fuel,
+            MessageDirection::ToWidget,
+            format!("{} / {}", self.flight_fuel, MAX_FUEL),
+        ));
     }
 
     #[cfg(not(feature = "server"))]
@@ -410,7 +439,7 @@ impl Player {
                 let mut pos_diff: Vector3<f32> = new_state.position - previous_state.position;
                 let pos_diff_mag = pos_diff.magnitude();
 
-                if pos_diff_mag > 0.0 {
+                if pos_diff_mag > f32::EPSILON {
                     let min_smooth_speed: f32 = MOVEMENT_SPEED / 6.0;
                     let target_catchup_time: f32 = 0.15;
 
@@ -436,7 +465,7 @@ impl Player {
                         previous_state.position += pos_diff;
                     }
 
-                    if move_dist == pos_diff_mag {
+                    if (move_dist - pos_diff_mag).abs() < f32::EPSILON {
                         self.controller.smoothing_speed = 0.0;
                         self.controller.new_states.remove(0);
                     }
@@ -463,7 +492,8 @@ impl Player {
         let mut ctx = scene.sound_context.state();
         ctx.add_source(
             SpatialSourceBuilder::new(
-                GenericSourceBuilder::new(self.firing_sound_buffer.clone().into())
+                GenericSourceBuilder::new()
+                    .with_buffer(self.firing_sound_buffer.clone().into())
                     .with_play_once(true)
                     // Every sound source must be explicity set to Playing status, otherwise it will be stopped.
                     .with_status(Status::Playing)
@@ -513,17 +543,14 @@ impl Player {
             let trail_length = if let Some(intersection) =
                 intersections.iter().find(|i| i.collider != self.collider)
             {
-                let collider = scene
+                let body = scene
                     .physics
-                    .colliders
-                    .get(intersection.collider.into())
+                    .collider_parent(&intersection.collider)
                     .unwrap();
 
-                let body = collider.parent();
-
-                if let Some(node_handle) = scene.physics_binder.node_of(body.into()) {
+                if let Some(node_handle) = scene.physics_binder.node_of(*body) {
                     let node = &mut scene.graph[node_handle];
-                    let tag = node.tag().clone();
+                    let tag = node.tag();
 
                     #[cfg(feature = "server")]
                     let mut destroy_block = false;
@@ -611,13 +638,13 @@ impl Player {
     }
 
     pub fn get_velocity(&self, scene: &Scene) -> Vector3<f32> {
-        let body = scene.physics.bodies.get(self.rigid_body.into()).unwrap();
+        let body = scene.physics.bodies.get(&self.rigid_body).unwrap();
 
         *body.linvel()
     }
 
     pub fn get_position(&self, scene: &Scene) -> Vector3<f32> {
-        let body = scene.physics.bodies.get(self.rigid_body.into()).unwrap();
+        let body = scene.physics.bodies.get(&self.rigid_body).unwrap();
 
         body.position().translation.vector
     }
@@ -631,94 +658,95 @@ impl Player {
     }
 
     pub fn clean_up(&mut self, scene: &mut Scene) {
-        scene.physics.remove_body(self.rigid_body);
+        scene.physics.remove_body(&self.rigid_body);
         scene.remove_node(self.pivot);
     }
 }
 
 async fn create_skybox(resource_manager: ResourceManager) -> SkyBox {
     // Load skybox textures in parallel.
-    let (front, back, left, right, top, bottom) = rg3d::futures::join!(
-        resource_manager.request_texture("data/textures/skybox/front.jpg"),
-        resource_manager.request_texture("data/textures/skybox/back.jpg"),
-        resource_manager.request_texture("data/textures/skybox/left.jpg"),
-        resource_manager.request_texture("data/textures/skybox/right.jpg"),
-        resource_manager.request_texture("data/textures/skybox/up.jpg"),
-        resource_manager.request_texture("data/textures/skybox/down.jpg")
+    let (front, back, left, right, top, bottom) = rg3d::core::futures::join!(
+        resource_manager.request_texture("data/textures/skybox/front.png", None),
+        resource_manager.request_texture("data/textures/skybox/back.png", None),
+        resource_manager.request_texture("data/textures/skybox/left.png", None),
+        resource_manager.request_texture("data/textures/skybox/right.png", None),
+        resource_manager.request_texture("data/textures/skybox/top.png", None),
+        resource_manager.request_texture("data/textures/skybox/down.png", None)
     );
 
     // Unwrap everything.
-    let skybox = SkyBox {
+    let skybox = SkyBoxBuilder {
         front: Some(front.unwrap()),
         back: Some(back.unwrap()),
         left: Some(left.unwrap()),
         right: Some(right.unwrap()),
         top: Some(top.unwrap()),
         bottom: Some(bottom.unwrap()),
-    };
+    }
+    .build()
+    .unwrap();
 
     // Set S and T coordinate wrap mode, ClampToEdge will remove any possible seams on edges
     // of the skybox.
-    for skybox_texture in skybox.textures().iter().filter_map(|t| t.clone()) {
-        let mut data = skybox_texture.data_ref();
-        data.set_s_wrap_mode(TextureWrapMode::ClampToEdge);
-        data.set_t_wrap_mode(TextureWrapMode::ClampToEdge);
-    }
+    let cubemap = skybox.cubemap();
+    let mut data = cubemap.as_ref().unwrap().data_ref();
+    data.set_s_wrap_mode(TextureWrapMode::ClampToEdge);
+    data.set_t_wrap_mode(TextureWrapMode::ClampToEdge);
 
     skybox
 }
 
-#[cfg(not(feature = "server"))]
-fn create_bullet_impact(
-    graph: &mut Graph,
-    resource_manager: ResourceManager,
-    pos: Vector3<f32>,
-    orientation: UnitQuaternion<f32>,
-) -> Handle<Node> {
-    // Create sphere emitter first.
-    let emitter = SphereEmitterBuilder::new(
-        BaseEmitterBuilder::new()
-            .with_max_particles(200)
-            .with_spawn_rate(1000)
-            .with_size_modifier_range(NumericRange::new(-0.01, -0.0125))
-            .with_size_range(NumericRange::new(0.0010, 0.01))
-            .with_x_velocity_range(NumericRange::new(-0.01, 0.01))
-            .with_y_velocity_range(NumericRange::new(0.017, 0.02))
-            .with_z_velocity_range(NumericRange::new(-0.01, 0.01))
-            .resurrect_particles(false),
-    )
-    .with_radius(0.01)
-    .build();
+// #[cfg(not(feature = "server"))]
+// fn create_bullet_impact(
+//     graph: &mut Graph,
+//     resource_manager: ResourceManager,
+//     pos: Vector3<f32>,
+//     orientation: UnitQuaternion<f32>,
+// ) -> Handle<Node> {
+//     // Create sphere emitter first.
+//     let emitter = SphereEmitterBuilder::new(
+//         BaseEmitterBuilder::new()
+//             .with_max_particles(200)
+//             .with_spawn_rate(1000)
+//             .with_size_modifier_range(NumericRange::new(-0.01, -0.0125))
+//             .with_size_range(NumericRange::new(0.0010, 0.01))
+//             .with_x_velocity_range(NumericRange::new(-0.01, 0.01))
+//             .with_y_velocity_range(NumericRange::new(0.017, 0.02))
+//             .with_z_velocity_range(NumericRange::new(-0.01, 0.01))
+//             .resurrect_particles(false),
+//     )
+//     .with_radius(0.01)
+//     .build();
 
-    // Color gradient will be used to modify color of each particle over its lifetime.
-    let color_gradient = {
-        let mut gradient = ColorGradient::new();
-        gradient.add_point(GradientPoint::new(0.00, Color::from_rgba(255, 255, 0, 0)));
-        gradient.add_point(GradientPoint::new(0.05, Color::from_rgba(255, 160, 0, 255)));
-        gradient.add_point(GradientPoint::new(0.95, Color::from_rgba(255, 120, 0, 255)));
-        gradient.add_point(GradientPoint::new(1.00, Color::from_rgba(255, 60, 0, 0)));
-        gradient
-    };
+//     // Color gradient will be used to modify color of each particle over its lifetime.
+//     let color_gradient = {
+//         let mut gradient = ColorGradient::new();
+//         gradient.add_point(GradientPoint::new(0.00, Color::from_rgba(255, 255, 0, 0)));
+//         gradient.add_point(GradientPoint::new(0.05, Color::from_rgba(255, 160, 0, 255)));
+//         gradient.add_point(GradientPoint::new(0.95, Color::from_rgba(255, 120, 0, 255)));
+//         gradient.add_point(GradientPoint::new(1.00, Color::from_rgba(255, 60, 0, 0)));
+//         gradient
+//     };
 
-    // Create new transform to orient and position particle system.
-    let transform = TransformBuilder::new()
-        .with_local_position(pos)
-        .with_local_rotation(orientation)
-        .build();
+//     // Create new transform to orient and position particle system.
+//     let transform = TransformBuilder::new()
+//         .with_local_position(pos)
+//         .with_local_rotation(orientation)
+//         .build();
 
-    // Finally create particle system with limited lifetime.
-    ParticleSystemBuilder::new(
-        BaseBuilder::new()
-            .with_lifetime(1.0)
-            .with_local_transform(transform),
-    )
-    .with_acceleration(Vector3::new(0.0, -10.0, 0.0))
-    .with_color_over_lifetime_gradient(color_gradient)
-    .with_emitters(vec![emitter])
-    // We'll use simple spark texture for each particle.
-    .with_texture(resource_manager.request_texture(Path::new("data/textures/spark.png")))
-    .build(graph)
-}
+//     // Finally create particle system with limited lifetime.
+//     ParticleSystemBuilder::new(
+//         BaseBuilder::new()
+//             .with_lifetime(1.0)
+//             .with_local_transform(transform),
+//     )
+//     .with_acceleration(Vector3::new(0.0, -10.0, 0.0))
+//     .with_color_over_lifetime_gradient(color_gradient)
+//     .with_emitters(vec![emitter])
+//     // We'll use simple spark texture for each particle.
+//     .with_texture(resource_manager.request_texture(Path::new("data/textures/spark.png")))
+//     .build(graph)
+// }
 
 #[cfg(not(feature = "server"))]
 fn create_shot_trail(
@@ -737,14 +765,22 @@ fn create_shot_trail(
         .build();
 
     // Create unit cylinder with caps that faces toward Z axis.
-    let shape = Arc::new(RwLock::new(SurfaceSharedData::make_cylinder(
+    let shape = Arc::new(RwLock::new(SurfaceData::make_cylinder(
         6,    // Count of sides
         1.0,  // Radius
         1.0,  // Height
         true, // No caps are needed.
         // Rotate vertical cylinder around X axis to make it face towards Z axis
-        UnitQuaternion::from_axis_angle(&Vector3::x_axis(), 90.0f32.to_radians()).to_homogeneous(),
+        &UnitQuaternion::from_axis_angle(&Vector3::x_axis(), 90.0f32.to_radians()).to_homogeneous(),
     )));
+
+    let mut material = Material::standard();
+    material
+        .set_property(
+            "diffuseColor",
+            PropertyValue::Color(Color::from_rgba(105, 171, 195, 150)),
+        )
+        .unwrap();
 
     MeshBuilder::new(
         BaseBuilder::new()
@@ -752,7 +788,7 @@ fn create_shot_trail(
             .with_lifetime(0.05),
     )
     .with_surfaces(vec![SurfaceBuilder::new(shape)
-        .with_color(Color::from_rgba(105, 171, 195, 150))
+        .with_material(Arc::new(Mutex::new(material)))
         .build()])
     // Do not cast shadows.
     .with_cast_shadows(false)

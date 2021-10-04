@@ -1,6 +1,6 @@
 use rg3d::{
     core::algebra::{Translation3, Vector3},
-    scene::ColliderHandle,
+    engine::ColliderHandle,
 };
 use serde::{Deserialize, Serialize};
 
