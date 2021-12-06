@@ -5,25 +5,20 @@ use rg3d::{
         color::Color,
         color_gradient::{ColorGradient, GradientPoint},
         math::{ray::Ray, Vector3Ext},
-        numeric_range::NumericRange,
         pool::Handle,
     },
-    engine::{
-        resource_manager::{MaterialSearchOptions, ResourceManager},
-        ColliderHandle, RigidBodyHandle,
-    },
+    engine::resource_manager::{MaterialSearchOptions, ResourceManager},
     event::ElementState,
-    gui::message::{MessageDirection, TextMessage},
+    gui::{message::MessageDirection, text::TextMessage},
     material::{Material, PropertyValue},
-    physics::{
-        dynamics::{RigidBody, RigidBodyBuilder},
-        geometry::ColliderBuilder,
-        prelude::CoefficientCombineRule,
+    physics3d::{
+        rapier::prelude::{CoefficientCombineRule, ColliderBuilder, RigidBody, RigidBodyBuilder},
+        ColliderHandle, RayCastOptions, RigidBodyHandle,
     },
     resource::texture::TextureWrapMode,
     scene::{
         base::BaseBuilder,
-        camera::{CameraBuilder, SkyBox, SkyBoxBuilder},
+        camera::{CameraBuilder, Exposure, SkyBox, SkyBoxBuilder},
         graph::Graph,
         mesh::{
             surface::{SurfaceBuilder, SurfaceData},
@@ -31,7 +26,7 @@ use rg3d::{
         },
         node::Node,
         particle_system::ParticleSystemBuilder,
-        physics::RayCastOptions,
+        physics::Physics,
         transform::TransformBuilder,
         Scene,
     },
@@ -43,10 +38,7 @@ use rg3d::{
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
-    sync::{
-        mpsc::{self, Sender},
-        Arc, Mutex, RwLock,
-    },
+    sync::mpsc::{self, Sender},
 };
 
 use crate::{
@@ -57,8 +49,8 @@ use crate::{
 };
 
 const MOVEMENT_SPEED: f32 = 1.5;
-const GRAVITY_SCALE: f32 = 0.5;
-const JET_SPEED: f32 = 0.012;
+const GRAVITY_SCALE: f32 = 0.6;
+const JET_SPEED: f32 = 0.015;
 
 const MAX_FUEL: u32 = 200;
 pub const SYNC_FREQUENCY: u32 = 3;
@@ -70,6 +62,8 @@ pub struct PlayerController {
     pub move_left: bool,
     pub move_right: bool,
     pub move_up: bool,
+    pub jump: bool,
+    pub fly: bool,
     pub pitch: f32,
     pub yaw: f32,
     pub dest_pitch: f32,
@@ -188,6 +182,10 @@ impl Player {
         .with_skybox(create_skybox(resource_manager.clone()).await)
         .build(&mut scene.graph);
 
+        scene.graph[camera]
+            .as_camera_mut()
+            .set_exposure(Exposure::Manual(std::f32::consts::E));
+
         let pivot = BaseBuilder::new()
             .with_children(&[camera, third_person_model])
             .with_tag("player".to_string()) // TODO: Use collider groups instead
@@ -281,7 +279,7 @@ impl Player {
         // `follow` method defined in Vector3Ext trait and it just increases or
         // decreases vector's value in order to "follow" the target value with
         // given speed.
-        self.recoil_offset.follow(&self.recoil_target_offset, 0.5);
+        // self.recoil_offset.follow(&self.recoil_target_offset, 0.5);
 
         // Apply offset to weapon's model.
         // scene.graph[self.weapon_pivot]
@@ -289,15 +287,17 @@ impl Player {
         //     .set_position(self.recoil_offset);
 
         // Check if we've reached target recoil offset.
-        if self
-            .recoil_offset
-            .metric_distance(&self.recoil_target_offset)
-            < 0.001
-        {
-            // And if so, reset offset to zero to return weapon at
-            // its default position.
-            self.recoil_target_offset = Default::default();
-        }
+        // if self
+        //     .recoil_offset
+        //     .metric_distance(&self.recoil_target_offset)
+        //     < 0.001
+        // {
+        //     // And if so, reset offset to zero to return weapon at
+        //     // its default position.
+        //     self.recoil_target_offset = Default::default();
+        // }
+
+        let has_ground_contact = self.has_ground_contact(&scene.physics);
 
         // Borrow rigid body in the physics.
         let body = scene.physics.bodies.get_mut(&self.rigid_body).unwrap();
@@ -331,12 +331,66 @@ impl Player {
         // Finally new linear velocity.
         body.set_linvel(velocity, true);
 
-        if self.controller.move_up && self.can_fly() {
-            body.apply_impulse(pivot.up_vector() * JET_SPEED, true);
-            self.flight_fuel = (self.flight_fuel - 2).clamp(0, 200);
-        } else {
-            self.flight_fuel = (self.flight_fuel + 1).clamp(0, 200);
+        if self.controller.jump && has_ground_contact && self.can_jump() {
+            // TODO: Add "ready_to_jump" for cooldown
+
+            let event = PlayerEvent::Jump { index: self.index };
+            let message = NetworkMessage::PlayerEvent {
+                index: self.index,
+                event,
+            };
+            #[cfg(feature = "server")]
+            network_manager.send_to_all_reliably(&message);
+
+            body.apply_impulse(pivot.up_vector() * 0.32, true);
         }
+
+        self.controller.jump = false;
+
+        // else if self.has_fuel() {
+        //         #[cfg(feature = "server")]
+        //         {
+        //             self.controller.fly = true;
+
+        //             let event = PlayerEvent::Fly {
+        //                 index: self.index,
+        //                 active: true,
+        //                 fuel: self.flight_fuel,
+        //             };
+        //             let message = NetworkMessage::PlayerEvent {
+        //                 index: self.index,
+        //                 event,
+        //             };
+
+        //             #[cfg(feature = "server")]
+        //             network_manager.send_to_all_reliably(&message);
+        //         }
+        //     }
+
+        // #[cfg(feature = "server")]
+        // if !self.controller.fly {
+        //     self.controller.fly = false;
+
+        //     let event = PlayerEvent::Fly {
+        //         index: self.index,
+        //         active: false,
+        //         fuel: self.flight_fuel,
+        //     };
+        //     let message = NetworkMessage::PlayerEvent {
+        //         index: self.index,
+        //         event,
+        //     };
+
+        //     network_manager.send_to_all_reliably(&message);
+        // }
+
+        if self.controller.fly && self.has_fuel() {
+            println!("flying: {}", self.flight_fuel);
+            body.apply_impulse(pivot.up_vector() * JET_SPEED, true);
+            self.flight_fuel = (self.flight_fuel - 3).clamp(0, MAX_FUEL);
+        }
+
+        self.flight_fuel = (self.flight_fuel + 1).clamp(0, MAX_FUEL);
 
         // Change the rotation of the rigid body according to current yaw. These lines responsible for
         // left-right rotation.
@@ -382,11 +436,18 @@ impl Player {
                 .unwrap();
         }
 
-        engine.user_interface.send_message(TextMessage::text(
-            interface.fuel,
-            MessageDirection::ToWidget,
-            format!("{} / {}", self.flight_fuel, MAX_FUEL),
-        ));
+        if self.current_player {
+            engine.user_interface.send_message(TextMessage::text(
+                interface.fuel,
+                MessageDirection::ToWidget,
+                format!("{} / {}", self.flight_fuel, MAX_FUEL),
+            ));
+        }
+    }
+
+    fn can_jump(&self) -> bool {
+        // TODO: Add cooldown timer and test for ground contact
+        return true;
     }
 
     #[cfg(not(feature = "server"))]
@@ -480,8 +541,8 @@ impl Player {
         }
     }
 
-    pub fn can_fly(&self) -> bool {
-        self.flight_fuel >= 2
+    pub fn has_fuel(&self) -> bool {
+        self.flight_fuel >= 3
     }
 
     pub fn can_shoot(&self) -> bool {
@@ -516,7 +577,7 @@ impl Player {
         if self.can_shoot() {
             self.shot_timer = 0.1;
 
-            self.recoil_target_offset = Vector3::new(0.0, 0.0, -0.035);
+            // self.recoil_target_offset = Vector3::new(0.0, 0.0, -0.035);
 
             let mut intersections = Vec::new();
 
@@ -531,7 +592,8 @@ impl Player {
 
             scene.physics.cast_ray(
                 RayCastOptions {
-                    ray,
+                    ray_origin: ray.origin.into(),
+                    ray_direction: ray.dir,
                     max_len: ray.dir.norm(),
                     groups: Default::default(),
                     sort_results: true, // We need intersections to be sorted from closest to furthest.
@@ -661,6 +723,19 @@ impl Player {
         scene.physics.remove_body(&self.rigid_body);
         scene.remove_node(self.pivot);
     }
+
+    pub fn has_ground_contact(&self, physics: &Physics) -> bool {
+        if let Some(body) = physics.bodies.get(&self.rigid_body) {
+            for contact in physics.narrow_phase.contacts_with(body.colliders()[0]) {
+                for manifold in contact.manifolds.iter() {
+                    if manifold.local_n1.y.abs() > 0.7 || manifold.local_n2.y.abs() > 0.7 {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
 }
 
 async fn create_skybox(resource_manager: ResourceManager) -> SkyBox {
@@ -755,6 +830,10 @@ fn create_shot_trail(
     direction: Vector3<f32>,
     trail_length: f32,
 ) {
+    use std::sync::Arc;
+
+    use rg3d::core::{parking_lot::Mutex, sstorage::ImmutableString};
+
     let transform = TransformBuilder::new()
         .with_local_position(origin)
         // Scale the trail in XZ plane to make it thin, and apply `trail_length` scale on Y axis
@@ -765,7 +844,7 @@ fn create_shot_trail(
         .build();
 
     // Create unit cylinder with caps that faces toward Z axis.
-    let shape = Arc::new(RwLock::new(SurfaceData::make_cylinder(
+    let shape = Arc::new(Mutex::new(SurfaceData::make_cylinder(
         6,    // Count of sides
         1.0,  // Radius
         1.0,  // Height
@@ -773,11 +852,10 @@ fn create_shot_trail(
         // Rotate vertical cylinder around X axis to make it face towards Z axis
         &UnitQuaternion::from_axis_angle(&Vector3::x_axis(), 90.0f32.to_radians()).to_homogeneous(),
     )));
-
     let mut material = Material::standard();
     material
         .set_property(
-            "diffuseColor",
+            &ImmutableString::new("diffuseColor"),
             PropertyValue::Color(Color::from_rgba(105, 171, 195, 150)),
         )
         .unwrap();
@@ -800,4 +878,10 @@ fn create_shot_trail(
 
 fn lerp(a: f32, b: f32, f: f32) -> f32 {
     return (a * (1.0 - f)) + (b * f);
+}
+
+fn get_jump_impulse(dist: f32, g: f32, mass: f32) -> f32 {
+    let v = (2.0 * g * dist).sqrt();
+
+    mass * v
 }

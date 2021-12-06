@@ -21,30 +21,27 @@ use rg3d::{
         color::Color,
         color_gradient::{ColorGradient, GradientPoint},
         math::ray::Ray,
-        numeric_range::NumericRange,
         pool::{Handle, Pool},
         profiler::print,
     },
-    engine::{framework::UiNode, resource_manager::ResourceManager, Engine},
+    engine::{resource_manager::ResourceManager, Engine},
     event::{DeviceEvent, ElementState, Event, MouseButton, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     gui::{
         grid::GridBuilder,
-        message::{MessageDirection, TextMessage},
-        node::StubNode,
+        message::MessageDirection,
         scroll_bar::ScrollBarBuilder,
-        text::TextBuilder,
+        text::{TextBuilder, TextMessage},
+        text_box::TextBoxBuilder,
         widget::WidgetBuilder,
-        VerticalAlignment,
+        HorizontalAlignment, UiNode, VerticalAlignment,
     },
-    physics::{dynamics::RigidBodyBuilder, geometry::ColliderBuilder},
     scene::{
         base::BaseBuilder,
         camera::{CameraBuilder, SkyBox},
         graph::Graph,
         mesh::{MeshBuilder, RenderPath},
         node::Node,
-        physics::RayCastOptions,
         transform::TransformBuilder,
     },
     window::{Fullscreen, WindowBuilder},
@@ -65,7 +62,7 @@ use std::{
 
 // Create our own engine type aliases. These specializations are needed, because the engine
 // provides a way to extend UI with custom nodes and messages.
-type GameEngine = Engine<(), StubNode>;
+type GameEngine = Engine;
 
 use std::error::Error;
 use std::fs::File;
@@ -158,7 +155,7 @@ fn main() {
 
         #[cfg(not(feature = "server"))]
         if focused && cursor_in_window {
-            process_input_event(&event, &mut game, &mut network_manager);
+            process_input_event(&event, &mut game, &mut network_manager, &mut engine);
         }
 
         match event {
@@ -188,14 +185,14 @@ fn main() {
                         &interface,
                     );
 
+                    while let Some(ui_message) = engine.user_interface.poll_message() {
+                        // match ui_message.data() {
+                        //     _ => (),
+                        // }
+                    }
+
                     // Update engine each frame.
                     engine.update(TIMESTEP);
-                }
-
-                while let Some(ui_message) = engine.user_interface.poll_message() {
-                    match ui_message.data() {
-                        _ => (),
-                    }
                 }
 
                 // Rendering must be explicitly requested and handled after RedrawRequested event is received.
@@ -221,7 +218,7 @@ fn main() {
                     // It is very important to handle Resized event from window, because
                     // renderer knows nothing about window size - it must be notified
                     // directly when window size has changed.
-                    engine.renderer.set_frame_size(size.into());
+                    engine.set_frame_size(size.into());
                     // interface = create_ui(&mut engine);
                 }
                 WindowEvent::Focused(focus) => {
@@ -246,7 +243,12 @@ fn main() {
 }
 
 #[cfg(not(feature = "server"))]
-fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut NetworkManager) {
+fn process_input_event(
+    event: &Event<()>,
+    game: &mut Game,
+    network_manager: &mut NetworkManager,
+    engine: &mut Engine,
+) {
     if let (Some(player_index), Some(level)) = (network_manager.player_index, &mut game.level) {
         match event {
             Event::WindowEvent { event, .. } => match event {
@@ -324,8 +326,26 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                                 }
                             }
                             VirtualKeyCode::Space => {
+                                let scene = &mut engine.scenes[level.scene];
                                 if let Some(player) = level.get_player_by_index(player_index) {
-                                    let action = PlayerEvent::MoveUp {
+                                    if player.has_ground_contact(&scene.physics) {
+                                        let action = PlayerEvent::Jump {
+                                            index: player_index,
+                                        };
+                                        let message = NetworkMessage::PlayerEvent {
+                                            index: player_index,
+                                            event: action,
+                                        };
+
+                                        network_manager.send_to_server_unreliably(&message, 0);
+                                        // level.queue_event(action);
+                                    }
+                                }
+                            }
+                            VirtualKeyCode::LShift => {
+                                let scene = &mut engine.scenes[level.scene];
+                                if let Some(player) = level.get_player_by_index(player_index) {
+                                    let action = PlayerEvent::Fly {
                                         index: player_index,
                                         active: input.state == ElementState::Pressed,
                                         fuel: player.flight_fuel,
@@ -336,7 +356,7 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
                                     };
 
                                     network_manager.send_to_server_unreliably(&message, 0);
-                                    // level.queue_event(action);
+                                    level.queue_event(action);
                                 }
                             }
                             _ => (),
@@ -389,6 +409,7 @@ fn process_input_event(event: &Event<()>, game: &mut Game, network_manager: &mut
 pub struct Interface {
     fps: Handle<UiNode>,
     fuel: Handle<UiNode>,
+    textbox: Handle<UiNode>,
 }
 
 fn create_ui(engine: &mut GameEngine) -> Interface {
@@ -401,9 +422,22 @@ fn create_ui(engine: &mut GameEngine) -> Interface {
     let fps = TextBuilder::new(WidgetBuilder::new()).build(ctx);
     let fuel = TextBuilder::new(
         WidgetBuilder::new()
+            .with_width(90.0)
             .with_desired_position(Vector2::new(window_width - 100.0, window_height - 25.0)),
     )
+    .with_horizontal_text_alignment(HorizontalAlignment::Right)
     .build(ctx);
 
-    Interface { fps, fuel }
+    let textbox = TextBoxBuilder::new(
+        WidgetBuilder::new()
+            .with_opacity(Some(0.5))
+            .with_height(250.0)
+            .with_width(500.0)
+            .with_desired_position(Vector2::new(0.0, window_height - 250.0)),
+    )
+    .with_multiline(true)
+    .with_editable(false)
+    .build(ctx);
+
+    Interface { fps, fuel, textbox }
 }

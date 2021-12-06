@@ -175,7 +175,10 @@ impl NetworkManager {
                                             #[cfg(not(feature = "server"))]
                                             level.queue_event(*event);
                                         }
-                                        PlayerEvent::MoveUp {
+                                        PlayerEvent::Jump { index } => {
+                                            level.queue_event(*event);
+                                        }
+                                        PlayerEvent::Fly {
                                             index,
                                             active,
                                             fuel,
@@ -184,16 +187,20 @@ impl NetworkManager {
                                             if let Some(net_index) =
                                                 self.get_index_for_address(packet.addr())
                                             {
-                                                *index = net_index;
-
                                                 if let Some(player) =
                                                     level.get_player_by_index(net_index)
                                                 {
+                                                    *index = net_index;
+                                                    *fuel = player.flight_fuel;
+
                                                     // Validate fly command
-                                                    if !*active || player.can_fly() {
-                                                        *fuel = player.flight_fuel;
+                                                    if !*active || player.has_fuel() {
                                                         level.queue_event(*event);
-                                                        self.send_to_all_unreliably(message, 0);
+                                                        self.send_to_all_except_address_unreliably(
+                                                            packet.addr(),
+                                                            message,
+                                                            0,
+                                                        );
                                                     }
                                                 }
                                             }
@@ -261,9 +268,9 @@ impl NetworkManager {
 
                                                 // Send spawn player event to all other players
                                                 let position = SerializableVector {
-                                                    x: -1.0 + 8.0 * (-1.0f32).powi(index as i32),
-                                                    y: 1.0,
-                                                    z: 0.0,
+                                                    x: 0.0,
+                                                    y: 2.0,
+                                                    z: 5.0 * (-1.0f32).powi(index as i32),
                                                 };
                                                 let event = PlayerEvent::SpawnPlayer {
                                                     index: index,

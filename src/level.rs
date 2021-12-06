@@ -12,7 +12,9 @@ use rg3d::{
         color::Color,
         pool::{Handle, Pool},
     },
-    engine::{resource_manager::MaterialSearchOptions, ColliderHandle},
+    engine::resource_manager::{MaterialSearchOptions, ResourceManager},
+    gui::{message::MessageDirection, text_box::TextBoxMessage},
+    physics3d::ColliderHandle,
     scene::{node::Node, Scene},
 };
 use serde::{Deserialize, Serialize};
@@ -40,12 +42,15 @@ pub struct Level {
 }
 
 impl Level {
-    pub async fn new(engine: &mut GameEngine, scene_name: &str, state: LevelState) -> Self {
+    pub async fn new(
+        resource_manager: ResourceManager,
+        scene_name: &str,
+        state: LevelState,
+    ) -> (Self, Scene) {
         let mut scene = Scene::new();
 
         // Load a scene resource and create its instance.
-        engine
-            .resource_manager
+        resource_manager
             .request_model(
                 ["data/levels/", scene_name, ".rgs"].concat(),
                 MaterialSearchOptions::UsePathDirectly,
@@ -70,7 +75,7 @@ impl Level {
 
         let mut level = Self {
             name: String::from(scene_name),
-            scene: engine.scenes.add(scene),
+            scene: Handle::NONE,
             players: Vec::new(),
             receiver: receiver,
             sender: sender,
@@ -79,9 +84,9 @@ impl Level {
             },
         };
 
-        level.apply_state(engine, state);
+        // level.apply_state(engine, state);
 
-        level
+        (level, scene)
     }
 
     pub fn get_player_by_index(&mut self, index: u32) -> Option<&mut Player> {
@@ -109,6 +114,7 @@ impl Level {
         }
 
         self.players.clear();
+        engine.scenes.remove(self.scene);
     }
 
     pub fn update(
@@ -222,59 +228,25 @@ impl Level {
                         }
                     }
                 }
-                PlayerEvent::MoveUp {
+                PlayerEvent::Jump { index } => {
+                    if let Some(player) = self.get_player_by_index(index) {
+                        player.controller.jump = true;
+                    }
+                }
+                PlayerEvent::Fly {
                     index,
                     active,
                     fuel,
                 } => {
                     if let Some(player) = self.get_player_by_index(index) {
-                        player.controller.move_up = active;
-                        player.flight_fuel = fuel;
-                    } //else {
-                      // TODO: Handle respawn with it's own event
-                      // #[cfg(feature = "server")]
-                      // if let Some(address) = network_manager.get_address_for_player(index) {
-                      //     // If one or less players left, restart level
+                        println!("fly event received: {:?}", action);
+                        player.controller.fly = active;
 
-                    //     let position = SerializableVector {
-                    //         x: 1.5 + 3.0 * (-1.0f32).powi(index as i32),
-                    //         y: 1.0,
-                    //         z: 0.0,
-                    //     };
-                    //     let spawn_event = PlayerEvent::SpawnPlayer {
-                    //         index: index,
-                    //         state: SerializablePlayerState {
-                    //             position: position,
-                    //             ..Default::default()
-                    //         },
-                    //         current_player: false,
-                    //     };
-                    //     self.queue_event(spawn_event);
-                    //     network_manager.send_to_all_except_address_reliably(
-                    //         address,
-                    //         &NetworkMessage::PlayerEvent {
-                    //             index: index,
-                    //             event: spawn_event,
-                    //         },
-                    //     );
-
-                    //     let spawn_event = PlayerEvent::SpawnPlayer {
-                    //         index: index,
-                    //         state: SerializablePlayerState {
-                    //             position: position,
-                    //             ..Default::default()
-                    //         },
-                    //         current_player: true,
-                    //     };
-                    //     network_manager.send_to_address_reliably(
-                    //         address,
-                    //         &NetworkMessage::PlayerEvent {
-                    //             index: index,
-                    //             event: spawn_event,
-                    //         },
-                    //     );
-                    // }
-                    // }
+                        #[cfg(not(feature = "server"))]
+                        {
+                            player.flight_fuel = fuel;
+                        }
+                    }
                 }
                 PlayerEvent::LookAround {
                     index,
@@ -349,6 +321,11 @@ impl Level {
                     }
                 }
                 PlayerEvent::KillPlayer { index } => {
+                    engine.user_interface.send_message(TextBoxMessage::text(
+                        interface.textbox,
+                        MessageDirection::ToWidget,
+                        format!("Player {} has died.\n", index),
+                    ));
                     self.remove_player(engine, index);
                     // If current player was killed then spectate another player
                     if let Some(player_index) = network_manager.player_index {
@@ -496,7 +473,7 @@ impl Level {
     pub fn destroy_block(&mut self, engine: &mut GameEngine, index: u32) {
         let scene = &mut engine.scenes[self.scene];
 
-        let handle = scene.graph.handle_from_index(index as usize);
+        let handle = scene.graph.handle_from_index(index);
 
         if handle.is_some() && scene.graph.is_valid_handle(handle) {
             if let Some(body) = scene.physics_binder.body_of(handle) {

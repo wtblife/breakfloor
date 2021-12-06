@@ -1,15 +1,22 @@
-- Load level resource in separate thread to prevent blocking game loop
-- Fuel indicator/gauge
+- Jump
+    - Change jet pack activation to separate key binding or delay activation
+- Ammo and ammo counter
+- Crosshair
 - Teams
     - can only damage other team
     - something to differentiate other team (different colored armor/laser?)
 - Team scoring and k/d
-- Hitboxes
+- Better looking projectile/laser
 - Animations
-- Crosshair
-- Diagnose level reset leak
+- Hitboxes
+    - Need to match animations and model closely with different body/head sections
 - Spawn locations which can be added in editor
 - Server config
     - Tick rate
     - Sync frequency
     - Level
+- Ability to change level in console
+- Chat
+- Lag compensation for shots fired
+- UI improvements
+    - Fuel gauge

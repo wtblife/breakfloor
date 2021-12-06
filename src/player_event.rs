@@ -1,6 +1,6 @@
 use rg3d::{
     core::algebra::{Translation3, Vector3},
-    engine::ColliderHandle,
+    physics3d::ColliderHandle,
 };
 use serde::{Deserialize, Serialize};
 
@@ -39,11 +39,14 @@ pub enum PlayerEvent {
     MoveUp {
         index: u32,
         active: bool,
-        fuel: u32,
     },
     Jump {
         index: u32,
+    },
+    Fly {
+        index: u32,
         active: bool,
+        fuel: u32,
     },
     LookAround {
         index: u32,
