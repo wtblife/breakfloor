@@ -233,13 +233,17 @@ impl Level {
                         player.controller.jump = true;
                     }
                 }
+                PlayerEvent::Reload { index } => {
+                    if let Some(player) = self.get_player_by_index(index) {
+                        // TODO: Reload
+                    }
+                }
                 PlayerEvent::Fly {
                     index,
                     active,
                     fuel,
                 } => {
                     if let Some(player) = self.get_player_by_index(index) {
-                        println!("fly event received: {:?}", action);
                         player.controller.fly = active;
 
                         #[cfg(not(feature = "server"))]
@@ -278,7 +282,7 @@ impl Level {
                             yaw: yaw,
                             pitch: pitch,
                             shoot: shoot,
-                            // fuel: fuel,
+                            fuel: fuel,
                         };
 
                         let length = player.controller.new_states.len();
@@ -324,7 +328,7 @@ impl Level {
                     engine.user_interface.send_message(TextBoxMessage::text(
                         interface.textbox,
                         MessageDirection::ToWidget,
-                        format!("Player {} has died.\n", index),
+                        format!("Player {} has been eliminated.\n", index),
                     ));
                     self.remove_player(engine, index);
                     // If current player was killed then spectate another player
@@ -407,7 +411,7 @@ impl Level {
                 yaw: player.get_yaw(),
                 pitch: player.get_pitch(),
                 shoot: player.controller.shoot,
-                // fuel: player.flight_fuel,
+                fuel: player.flight_fuel,
             };
 
             let length = player.controller.previous_states.len();

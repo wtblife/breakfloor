@@ -1,15 +1,16 @@
-- Jump
-    - Change jet pack activation to separate key binding or delay activation
+- Animations
 - Ammo and ammo counter
-- Crosshair
+    - Reload
+- Hitboxes
+    - Need to match animations and model closely with different body/head sections
 - Teams
     - can only damage other team
     - something to differentiate other team (different colored armor/laser?)
 - Team scoring and k/d
-- Better looking projectile/laser
-- Animations
-- Hitboxes
-    - Need to match animations and model closely with different body/head sections
+- Laser effects
+    - Impact decal
+    - Muzzle flash
+    - Laser beam?
 - Spawn locations which can be added in editor
 - Server config
     - Tick rate
@@ -20,3 +21,10 @@
 - Lag compensation for shots fired
 - UI improvements
     - Fuel gauge
+- Shields/HP
+    - 1 hit to break shield then headshot is 1 hit kill or bodyshot is 3 hit kill?
+    - Grenades are 1 hit kill after shield
+    - Shields regenerate when damage hasn't been taken for 5 seconds
+- More weapons
+    - Grenades
+- Melee attack/bunt

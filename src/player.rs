@@ -1,5 +1,6 @@
 use bincode::serialize;
 use rg3d::{
+    animation::Animation,
     core::{
         algebra::{Matrix3, Translation3, UnitQuaternion, Vector3},
         color::Color,
@@ -50,9 +51,8 @@ use crate::{
 
 const MOVEMENT_SPEED: f32 = 1.5;
 const GRAVITY_SCALE: f32 = 0.6;
-const JET_SPEED: f32 = 0.015;
-
-const MAX_FUEL: u32 = 200;
+const JET_SPEED: f32 = 0.0155;
+const MAX_FUEL: u32 = 225;
 pub const SYNC_FREQUENCY: u32 = 3;
 
 #[derive(Default)]
@@ -76,7 +76,7 @@ pub struct PlayerController {
 
 pub struct Player {
     pivot: Handle<Node>,
-    weapon_pivot: Handle<Node>,
+    barrel: Handle<Node>,
     spine: Handle<Node>,
     camera: Handle<Node>,
     rigid_body: RigidBodyHandle,
@@ -91,6 +91,8 @@ pub struct Player {
     firing_sound_buffer: SoundBufferResource,
     pub flight_fuel: u32,
     current_player: bool,
+    pub ammo: u32,
+    animation: Handle<Animation>,
 }
 
 #[derive(Default, Debug)]
@@ -101,7 +103,7 @@ pub struct PlayerState {
     pub yaw: f32,
     pub pitch: f32,
     pub shoot: bool,
-    // pub fuel: u32,
+    pub fuel: u32,
 }
 
 // impl Serialize for PlayerState {
@@ -129,20 +131,46 @@ impl Player {
         index: u32,
     ) -> Self {
         // TODO: Resources should only need to be loaded once and shared among players
-        let model_resource = resource_manager
+        let first_person_resource = resource_manager
             .request_model(
-                "data/models/shooting.rgs",
+                "data/models/walking_1st.fbx",
                 MaterialSearchOptions::MaterialsDirectory(PathBuf::from("data/textures")),
             )
             .await
             .unwrap();
 
-        let first_person_model = model_resource.instantiate(scene).root;
+        let third_person_resource = resource_manager
+            .request_model(
+                "data/models/idle.fbx",
+                MaterialSearchOptions::MaterialsDirectory(PathBuf::from("data/textures")),
+            )
+            .await
+            .unwrap();
 
-        let third_person_model = model_resource.instantiate(scene).root;
+        let first_person_model = first_person_resource.instantiate(scene).root;
+        let third_person_model = third_person_resource.instantiate(scene).root;
+
+        let animation_resource = resource_manager
+            .request_model(
+                "data/models/walking_1st.fbx",
+                MaterialSearchOptions::MaterialsDirectory(PathBuf::from("data/textures")),
+            )
+            .await
+            .unwrap();
+
+        let player_model = match current_player {
+            true => first_person_model,
+            false => third_person_model,
+        };
+
+        let animation = *animation_resource
+            .retarget_animations(player_model, scene)
+            .get(0)
+            .unwrap();
+        // println!("animations: {:?}", animations.len());
 
         let camera_pos = Vector3::new(0.0, 0.37, 0.00);
-        let model_pos = Vector3::new(0.0, -0.82, -0.08);
+        let model_pos = Vector3::new(0.0, -0.82, -0.09);
 
         scene.graph[first_person_model]
             .local_transform_mut()
@@ -159,15 +187,15 @@ impl Player {
         scene.graph[first_person_model].set_visibility(current_player);
 
         // Workaround for gun getting culled
-        // let gun = scene.graph.find_by_name(first_person_model, "gun_LOD0");
-        // scene.graph[gun]
-        //     .local_transform_mut()
-        //     .set_position(Vector3::new(0.0, 0.82, 0.5));
+        let gun = scene.graph.find_by_name(first_person_model, "gun_LOD0");
+        scene.graph[gun]
+            .local_transform_mut()
+            .set_position(Vector3::new(0.0, 1.0, 0.5));
 
         let spine = scene.graph.find_by_name(third_person_model, "Bind_Spine");
 
         // TODO: Need separate pivots for third or first person to make shots appear from correct position in third person
-        let weapon_pivot = scene.graph.find_by_name(first_person_model, "Barrel");
+        let barrel = scene.graph.find_by_name(first_person_model, "gun_LOD0");
 
         let camera = CameraBuilder::new(
             BaseBuilder::new()
@@ -229,7 +257,7 @@ impl Player {
 
         Self {
             pivot,
-            weapon_pivot,
+            barrel,
             spine,
             camera: camera,
             rigid_body,
@@ -249,6 +277,8 @@ impl Player {
             firing_sound_buffer,
             flight_fuel: MAX_FUEL,
             current_player,
+            ammo: 20,
+            animation,
         }
     }
 
@@ -273,6 +303,12 @@ impl Player {
                                // action_sender: &mpsc::Sender<PlayerEvent>
     ) {
         let scene = &mut engine.scenes[scene];
+
+        scene
+            .animations
+            .get_mut(self.animation)
+            .get_pose()
+            .apply(&mut scene.graph);
 
         self.shot_timer = (self.shot_timer - dt).max(0.0);
 
@@ -310,6 +346,8 @@ impl Player {
         // Keep only vertical velocity, and drop horizontal.
         let mut velocity = Vector3::new(0.0, body.linvel().y, 0.0);
 
+        // TODO: Moving diagonally should move at correct speed
+
         // Change the velocity depending on the keys pressed.
         if self.controller.move_forward {
             // If we moving forward then add "look" vector of the pivot.
@@ -330,6 +368,15 @@ impl Player {
 
         // Finally new linear velocity.
         body.set_linvel(velocity, true);
+
+        if self.controller.fly && self.has_fuel() {
+            if body.linvel().y < 3.0 {
+                body.apply_impulse(pivot.up_vector() * JET_SPEED, true);
+                self.flight_fuel = (self.flight_fuel - 3).clamp(0, MAX_FUEL);
+            }
+        }
+
+        self.flight_fuel = (self.flight_fuel + 1).clamp(0, MAX_FUEL);
 
         if self.controller.jump && has_ground_contact && self.can_jump() {
             // TODO: Add "ready_to_jump" for cooldown
@@ -384,14 +431,6 @@ impl Player {
         //     network_manager.send_to_all_reliably(&message);
         // }
 
-        if self.controller.fly && self.has_fuel() {
-            println!("flying: {}", self.flight_fuel);
-            body.apply_impulse(pivot.up_vector() * JET_SPEED, true);
-            self.flight_fuel = (self.flight_fuel - 3).clamp(0, MAX_FUEL);
-        }
-
-        self.flight_fuel = (self.flight_fuel + 1).clamp(0, MAX_FUEL);
-
         // Change the rotation of the rigid body according to current yaw. These lines responsible for
         // left-right rotation.
         let mut position = *body.position();
@@ -428,7 +467,7 @@ impl Player {
         }
 
         #[cfg(feature = "server")]
-        if position.translation.vector.y < -10.0 {
+        if position.translation.vector.y < -12.0 {
             event_sender
                 .send(PlayerEvent::KillPlayerFromIntersection {
                     collider: self.collider,
@@ -561,8 +600,8 @@ impl Player {
                     .build()
                     .unwrap(),
             )
-            .with_position(scene.graph[self.weapon_pivot].global_position())
-            .with_rolloff_factor(1.5)
+            .with_position(scene.graph[self.barrel].global_position())
+            // .with_rolloff_factor(1.5)
             .build_source(),
         );
     }
@@ -586,7 +625,7 @@ impl Player {
             // Make a ray that starts at the weapon's position in the world and look toward
             // "look" vector of the camera.
             let ray = Ray::new(
-                scene.graph[self.weapon_pivot].global_position(),
+                scene.graph[self.camera].global_position(),
                 scene.graph[self.camera].look_vector().scale(1000.0),
             );
 
@@ -686,8 +725,8 @@ impl Player {
                 ray.dir.norm()
             };
 
-            #[cfg(not(feature = "server"))]
-            create_shot_trail(&mut scene.graph, ray.origin, ray.dir, trail_length);
+            // #[cfg(not(feature = "server"))]
+            // create_shot_trail(&mut scene.graph, ray.origin, ray.dir, trail_length);
 
             #[cfg(not(feature = "server"))]
             self.play_shoot_sound(scene);
@@ -846,7 +885,7 @@ fn create_shot_trail(
     // Create unit cylinder with caps that faces toward Z axis.
     let shape = Arc::new(Mutex::new(SurfaceData::make_cylinder(
         6,    // Count of sides
-        1.0,  // Radius
+        0.5,  // Radius
         1.0,  // Height
         true, // No caps are needed.
         // Rotate vertical cylinder around X axis to make it face towards Z axis

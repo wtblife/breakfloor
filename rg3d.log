@@ -1,0 +1,104 @@
+[INFO]: Shader BlurShader_VertexShader compiled successfully!
+[INFO]: Shader BlurShader_FragmentShader compiled successfully!
+[INFO]: Shader BlurShader linked successfully!
+[INFO]: Shader SsaoShader_VertexShader compiled successfully!
+[INFO]: Shader SsaoShader_FragmentShader compiled successfully!
+[INFO]: Shader SsaoShader linked successfully!
+[INFO]: Shader SpotLightShader_VertexShader compiled successfully!
+[INFO]: Shader SpotLightShader_FragmentShader compiled successfully!
+[INFO]: Shader SpotLightShader linked successfully!
+[INFO]: Shader PointLightShader_VertexShader compiled successfully!
+[INFO]: Shader PointLightShader_FragmentShader compiled successfully!
+[INFO]: Shader PointLightShader linked successfully!
+[INFO]: Shader DirectionalLightShader_VertexShader compiled successfully!
+[INFO]: Shader DirectionalLightShader_FragmentShader compiled successfully!
+[INFO]: Shader DirectionalLightShader linked successfully!
+[INFO]: Shader AmbientLightShader_VertexShader compiled successfully!
+[INFO]: Shader AmbientLightShader_FragmentShader compiled successfully!
+[INFO]: Shader AmbientLightShader linked successfully!
+[INFO]: Shader FlatShader_VertexShader compiled successfully!
+[INFO]: Shader FlatShader_FragmentShader compiled successfully!
+[INFO]: Shader FlatShader linked successfully!
+[INFO]: Shader SkyboxShader_VertexShader compiled successfully!
+[INFO]: Shader SkyboxShader_FragmentShader compiled successfully!
+[INFO]: Shader SkyboxShader linked successfully!
+[INFO]: Shader SpotVolumetricLight_VertexShader compiled successfully!
+[INFO]: Shader SpotVolumetricLight_FragmentShader compiled successfully!
+[INFO]: Shader SpotVolumetricLight linked successfully!
+[INFO]: Shader PointVolumetricLight_VertexShader compiled successfully!
+[INFO]: Shader PointVolumetricLight_FragmentShader compiled successfully!
+[INFO]: Shader PointVolumetricLight linked successfully!
+[INFO]: Shader FlatShader_VertexShader compiled successfully!
+[INFO]: Shader FlatShader_FragmentShader compiled successfully!
+[INFO]: Shader FlatShader linked successfully!
+[INFO]: Shader FlatShader_VertexShader compiled successfully!
+[INFO]: Shader FlatShader_FragmentShader compiled successfully!
+[INFO]: Shader FlatShader linked successfully!
+[INFO]: Shader SpriteShader_VertexShader compiled successfully!
+[INFO]: Shader SpriteShader_FragmentShader compiled successfully!
+[INFO]: Shader SpriteShader linked successfully!
+[INFO]: Shader UIShader_VertexShader compiled successfully!
+[INFO]: Shader UIShader_FragmentShader compiled successfully!
+[INFO]: Shader UIShader linked successfully!
+[INFO]: Shader ParticleSystemShader_VertexShader compiled successfully!
+[INFO]: Shader ParticleSystemShader_FragmentShader compiled successfully!
+[INFO]: Shader ParticleSystemShader linked successfully!
+[INFO]: Shader DebugShader_VertexShader compiled successfully!
+[INFO]: Shader DebugShader_FragmentShader compiled successfully!
+[INFO]: Shader DebugShader linked successfully!
+[INFO]: Shader FXAAShader_VertexShader compiled successfully!
+[INFO]: Shader FXAAShader_FragmentShader compiled successfully!
+[INFO]: Shader FXAAShader linked successfully!
+[INFO]: Shader SpriteShader2D_VertexShader compiled successfully!
+[INFO]: Shader SpriteShader2D_FragmentShader compiled successfully!
+[INFO]: Shader SpriteShader2D linked successfully!
+[INFO]: Texture "data/textures/crosshair.png" is loaded in 7.4478ms!
+[INFO]: Starting resolve...
+[INFO]: Resolving graph...
+[INFO]: Texture "data/textures/Block.png" is loaded in 456.4µs!
+[INFO]: Original handles resolved!
+[INFO]: Checking integrity...
+[INFO]: Integrity restored for 0 instances! 0 new nodes were added!
+[INFO]: Graph resolved successfully!
+[INFO]: Resolving animations...
+[INFO]: Animations resolved successfully!
+[INFO]: Resolve succeeded!
+[INFO]: Model "data/levels/block_remake.rgs" is loaded!
+[INFO]: Resource data/levels/block_remake.rgs was successfully embedded into physics world!
+[INFO]: Texture "data/textures/floor.jpg" is loaded in 52.1233ms!
+[INFO]: Resource data/levels/block_remake.rgs was successfully embedded into physics world!
+[INFO]: Trying to load "data/models/walking_1st.fbx"
+[INFO]: FBX "data/models/walking_1st.fbx" loaded in 45 ms
+	- Parsing - 28 ms
+	- DOM Prepare - 5 ms
+	- Conversion - 11 ms
+[INFO]: Model "data/models/walking_1st.fbx" is loaded!
+[INFO]: Trying to load "data/models/idle.fbx"
+[INFO]: Texture "data/textures\\gun_dDo_n.tga" is loaded in 64.2328ms!
+[INFO]: FBX "data/models/idle.fbx" loaded in 50 ms
+	- Parsing - 34 ms
+	- DOM Prepare - 5 ms
+	- Conversion - 11 ms
+[INFO]: Model "data/models/idle.fbx" is loaded!
+[INFO]: Resource data/models/walking_1st.fbx was successfully embedded into physics world!
+[INFO]: Resource data/models/idle.fbx was successfully embedded into physics world!
+[INFO]: Texture "data/textures\\gun_dDo_d.tga" is loaded in 91.0545ms!
+[INFO]: Texture "data/textures\\soldier_dDo_d.tga" is loaded in 229.7891ms!
+[INFO]: Texture "data/textures\\soldier_dDo_n.tga" is loaded in 273.834ms!
+[INFO]: Texture "data/textures/skybox/right.png" is loaded in 265.2464ms!
+[INFO]: Texture "data/textures/skybox/top.png" is loaded in 267.1892ms!
+[INFO]: Texture "data/textures/skybox/back.png" is loaded in 274.6103ms!
+[INFO]: Texture "data/textures/skybox/down.png" is loaded in 294.1983ms!
+[INFO]: Texture "data/textures/skybox/front.png" is loaded in 346.7067ms!
+[INFO]: Texture "data/textures/skybox/left.png" is loaded in 348.5368ms!
+[INFO]: Sound buffer "data/sounds/laser4.ogg" is loaded!
+[INFO]: Resource data/levels/block_remake.rgs was successfully embedded into physics world!
+[INFO]: Resource data/models/walking_1st.fbx was successfully embedded into physics world!
+[INFO]: Resource data/models/idle.fbx was successfully embedded into physics world!
+[INFO]: Resource data/models/walking_1st.fbx was successfully embedded into physics world!
+[INFO]: Resource data/models/idle.fbx was successfully embedded into physics world!
+[INFO]: Resource data/levels/block_remake.rgs was successfully embedded into physics world!
+[INFO]: Resource data/models/walking_1st.fbx was successfully embedded into physics world!
+[INFO]: Resource data/models/idle.fbx was successfully embedded into physics world!
+[INFO]: Resource data/models/walking_1st.fbx was successfully embedded into physics world!
+[INFO]: Resource data/models/idle.fbx was successfully embedded into physics world!

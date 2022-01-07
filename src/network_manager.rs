@@ -176,6 +176,23 @@ impl NetworkManager {
                                             level.queue_event(*event);
                                         }
                                         PlayerEvent::Jump { index } => {
+                                            #[cfg(feature = "server")]
+                                            if let Some(net_index) =
+                                                self.get_index_for_address(packet.addr())
+                                            {
+                                                *index = net_index;
+                                            }
+
+                                            level.queue_event(*event);
+                                        }
+                                        PlayerEvent::Reload { index } => {
+                                            #[cfg(feature = "server")]
+                                            if let Some(net_index) =
+                                                self.get_index_for_address(packet.addr())
+                                            {
+                                                *index = net_index;
+                                            }
+
                                             level.queue_event(*event);
                                         }
                                         PlayerEvent::Fly {
@@ -255,6 +272,7 @@ impl NetworkManager {
                                                                 yaw: player.get_yaw(),
                                                                 pitch: player.get_pitch(),
                                                                 shoot: player.controller.shoot,
+                                                                fuel: player.flight_fuel,
                                                             },
                                                             current_player: false,
                                                         },

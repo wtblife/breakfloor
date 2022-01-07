@@ -29,6 +29,7 @@ use rg3d::{
     event_loop::{ControlFlow, EventLoop},
     gui::{
         grid::GridBuilder,
+        image::ImageBuilder,
         message::MessageDirection,
         scroll_bar::ScrollBarBuilder,
         text::{TextBuilder, TextMessage},
@@ -44,6 +45,7 @@ use rg3d::{
         node::Node,
         transform::TransformBuilder,
     },
+    utils::into_gui_texture,
     window::{Fullscreen, WindowBuilder},
 };
 use serde::Deserialize;
@@ -410,6 +412,7 @@ pub struct Interface {
     fps: Handle<UiNode>,
     fuel: Handle<UiNode>,
     textbox: Handle<UiNode>,
+    crosshair: Handle<UiNode>,
 }
 
 fn create_ui(engine: &mut GameEngine) -> Interface {
@@ -439,5 +442,27 @@ fn create_ui(engine: &mut GameEngine) -> Interface {
     .with_editable(false)
     .build(ctx);
 
-    Interface { fps, fuel, textbox }
+    let crosshair = ImageBuilder::new(
+        WidgetBuilder::new()
+            .with_opacity(Some(0.35))
+            .with_desired_position(Vector2::new(
+                window_width / 2.0 - 32.0,
+                window_height / 2.0 - 32.0,
+            ))
+            .with_width(64.0)
+            .with_height(64.0),
+    )
+    .with_texture(into_gui_texture(
+        engine
+            .resource_manager
+            .request_texture("data/textures/crosshair.png", None),
+    ))
+    .build(ctx);
+
+    Interface {
+        fps,
+        fuel,
+        textbox,
+        crosshair,
+    }
 }

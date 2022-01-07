@@ -79,6 +79,9 @@ pub enum PlayerEvent {
         index: u32,
         current_player: bool,
     },
+    Reload {
+        index: u32,
+    },
 }
 
 #[derive(Default, Debug, Serialize, Deserialize, Copy, Clone)]
@@ -88,6 +91,7 @@ pub struct SerializablePlayerState {
     pub yaw: f32,
     pub pitch: f32,
     pub shoot: bool,
+    pub fuel: u32,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize, Clone, Copy)]
