@@ -14,7 +14,7 @@ console = []
 opt-level = 3
 
 [dependencies]
-rg3d = { path = "../rg3d" }
+fyrox = { path = "../Fyrox" }
 laminar = "0.5"
 crossbeam-channel = "0.5"
 serde = { version = "1.0", features = ["derive"] }

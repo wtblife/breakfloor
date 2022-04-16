@@ -1,6 +1,9 @@
-use rg3d::{
-    core::algebra::{Translation3, Vector3},
-    physics3d::ColliderHandle,
+use fyrox::{
+    core::{
+        algebra::{Translation3, Vector3},
+        pool::Handle,
+    },
+    scene::node::Node,
 };
 use serde::{Deserialize, Serialize};
 
@@ -72,7 +75,7 @@ pub enum PlayerEvent {
     },
     KillPlayerFromIntersection {
         #[serde(skip)]
-        collider: ColliderHandle,
+        collider: Handle<Node>,
     },
     SpawnPlayer {
         state: SerializablePlayerState, // TODO: Should probably just serialize PlayerState

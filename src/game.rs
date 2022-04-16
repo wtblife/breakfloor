@@ -3,7 +3,7 @@ use std::sync::{
     Arc, Mutex,
 };
 
-use rg3d::scene::Scene;
+use fyrox::scene::Scene;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -43,9 +43,9 @@ impl Game {
                 let state = LevelState {
                     destroyed_blocks: Vec::new(),
                 };
-                let level = rg3d::core::futures::executor::block_on(Level::new(
+                let level = fyrox::core::futures::executor::block_on(Level::new(
                     resource_manager,
-                    "block_remake",
+                    "block_test",
                     LevelState {
                         destroyed_blocks: Vec::new(),
                     },
@@ -86,7 +86,7 @@ impl Game {
                     self.load_context = Some(ctx.clone());
 
                     std::thread::spawn(move || {
-                        let level = rg3d::core::futures::executor::block_on(Level::new(
+                        let level = fyrox::core::futures::executor::block_on(Level::new(
                             resource_manager,
                             level.as_str(),
                             state.clone(),

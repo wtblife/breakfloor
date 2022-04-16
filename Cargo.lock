@@ -120,8 +120,8 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "crossbeam-channel",
+ "fyrox",
  "laminar",
- "rg3d",
  "serde",
  "serde_json",
 ]
@@ -738,6 +738,111 @@ dependencies = [
 ]
 
 [[package]]
+name = "fyrox"
+version = "0.24.0"
+dependencies = [
+ "bitflags",
+ "ddsfile",
+ "fxhash",
+ "fyrox-core",
+ "fyrox-resource",
+ "fyrox-sound",
+ "fyrox-ui",
+ "glow",
+ "glutin",
+ "image",
+ "inflate",
+ "lazy_static",
+ "notify",
+ "rapier2d",
+ "rapier3d",
+ "rayon",
+ "ron",
+ "serde",
+ "strum",
+ "strum_macros",
+ "tbc",
+ "thiserror",
+ "walkdir",
+ "winit",
+]
+
+[[package]]
+name = "fyrox-core"
+version = "0.19.0"
+dependencies = [
+ "arrayvec",
+ "base64",
+ "byteorder",
+ "futures",
+ "fxhash",
+ "fyrox-core-derive",
+ "instant",
+ "js-sys",
+ "lazy_static",
+ "memoffset",
+ "nalgebra",
+ "num-traits 0.2.14",
+ "parking_lot",
+ "rand",
+ "uuid",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "fyrox-core-derive"
+version = "0.14.0"
+dependencies = [
+ "convert_case",
+ "darling",
+ "fxhash",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "fyrox-resource"
+version = "0.3.0"
+dependencies = [
+ "fyrox-core",
+]
+
+[[package]]
+name = "fyrox-sound"
+version = "0.26.0"
+dependencies = [
+ "alsa-sys",
+ "core-foundation-sys 0.8.2",
+ "coreaudio-sys",
+ "fyrox-core",
+ "fyrox-resource",
+ "hound",
+ "hrtf",
+ "lewton",
+ "strum",
+ "strum_macros",
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "fyrox-ui"
+version = "0.15.0"
+dependencies = [
+ "copypasta",
+ "fontdue",
+ "fxhash",
+ "fyrox-core",
+ "lazy_static",
+ "notify",
+ "strum",
+ "strum_macros",
+ "sysinfo",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -896,9 +1001,9 @@ checksum = "8a164bb2ceaeff4f42542bdb847c41517c78a60f5649671b2a07312b6e117549"
 
 [[package]]
 name = "hrtf"
-version = "0.7.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d98b081817fdd46ee439f18975b3764cafd56642e251d55ebf6faf9120be95da"
+checksum = "73088c4a5d7c9d21ee942a54611696f247c4bafc85e9261bf8c409b6857e75be"
 dependencies = [
  "byteorder",
  "rubato",
@@ -1885,108 +1990,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
 
 [[package]]
-name = "rg3d"
-version = "0.24.0"
-dependencies = [
- "bitflags",
- "ddsfile",
- "fxhash",
- "glow",
- "glutin",
- "image",
- "inflate",
- "lazy_static",
- "rapier2d",
- "rapier3d",
- "rayon",
- "rg3d-core",
- "rg3d-resource",
- "rg3d-sound",
- "rg3d-ui",
- "ron",
- "serde",
- "strum",
- "strum_macros",
- "tbc",
- "thiserror",
- "walkdir",
- "winit",
-]
-
-[[package]]
-name = "rg3d-core"
-version = "0.19.0"
-dependencies = [
- "arrayvec",
- "base64",
- "byteorder",
- "futures",
- "fxhash",
- "instant",
- "js-sys",
- "lazy_static",
- "memoffset",
- "nalgebra",
- "num-traits 0.2.14",
- "parking_lot",
- "rand",
- "rg3d-core-derive",
- "uuid",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
-name = "rg3d-core-derive"
-version = "0.14.0"
-dependencies = [
- "convert_case",
- "darling",
- "fxhash",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "rg3d-resource"
-version = "0.3.0"
-dependencies = [
- "rg3d-core",
-]
-
-[[package]]
-name = "rg3d-sound"
-version = "0.26.0"
-dependencies = [
- "alsa-sys",
- "core-foundation-sys 0.8.2",
- "coreaudio-sys",
- "hound",
- "hrtf",
- "lewton",
- "rg3d-core",
- "rg3d-resource",
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "rg3d-ui"
-version = "0.15.0"
-dependencies = [
- "copypasta",
- "fontdue",
- "fxhash",
- "lazy_static",
- "notify",
- "rg3d-core",
- "strum",
- "strum_macros",
- "sysinfo",
-]
-
-[[package]]
 name = "ron"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1999,9 +2002,9 @@ dependencies = [
 
 [[package]]
 name = "rubato"
-version = "0.8.1"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b32df824bfec62fa252d850f346e867f43b66e5d429161f99ccfb7f1cb9ec148"
+checksum = "d29cf25e25288b595458df0e00c3065db08c31afe4b4e5a74cbfc5a9b8e763cd"
 dependencies = [
  "log",
  "num-complex",

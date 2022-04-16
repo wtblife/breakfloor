@@ -6,16 +6,15 @@ use std::{
     thread::spawn,
 };
 
-use rg3d::{
+use fyrox::{
     core::{
         algebra::Vector3,
         color::Color,
         pool::{Handle, Pool},
     },
-    engine::resource_manager::{MaterialSearchOptions, ResourceManager},
+    engine::resource_manager::ResourceManager,
     gui::{message::MessageDirection, text_box::TextBoxMessage},
-    physics3d::ColliderHandle,
-    scene::{node::Node, Scene},
+    scene::{graph::SubGraph, node::Node, Scene},
 };
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +38,8 @@ pub struct Level {
     receiver: Receiver<PlayerEvent>,
     pub sender: Sender<PlayerEvent>,
     pub state: LevelState,
+    // blocks: Vec<Vec<Vec<Handle<Node>>>>,
+    // hidden_blocks: Vec<SubGraph>,
 }
 
 impl Level {
@@ -51,22 +52,26 @@ impl Level {
 
         // Load a scene resource and create its instance.
         resource_manager
-            .request_model(
-                ["data/levels/", scene_name, ".rgs"].concat(),
-                MaterialSearchOptions::UsePathDirectly,
-            )
+            .request_model(["data/levels/", scene_name, ".rgs"].concat())
             .await
             .unwrap()
             .instantiate_geometry(&mut scene);
 
-        // for (handle, node) in scene.graph.pair_iter() {
-        //     if let Some(body_handle) = scene.physics_binder.body_of(handle) {
-        //         if let Some(body) = scene.physics.bodies.get(body_handle.into()) {
-        //             for &collider_handle in body.colliders().iter() {
-        //                 scene.physics.colliders[collider_handle].friction = 0.0;
-        //             }
-        //         }
-        //     }
+        // let mut blocks_3d: Vec<Vec<Vec<Handle<Node>>>> =
+        //     vec![vec![vec![Handle::<Node>::NONE; 100]; 100]; 100];
+
+        // let blocks: Vec<(Handle<Node>, Vector3<f32>)> = scene
+        //     .graph
+        //     .pair_iter_mut()
+        //     .filter(|(handle, node)| {
+        //         node.tag() != "wall" && node.tag() != "player" && node.is_rigid_body()
+        //     })
+        //     .map(|(handle, node)| (handle, node.global_position()))
+        //     .collect();
+
+        // for block in blocks {
+        //     blocks_3d[(block.1.x.round() + 50.0) as usize][(block.1.y.round() + 50.0) as usize]
+        //         [(block.1.z.round() + 50.0) as usize] = block.0;
         // }
 
         scene.ambient_lighting_color = Color::opaque(255, 255, 255);
@@ -82,6 +87,8 @@ impl Level {
             state: LevelState {
                 destroyed_blocks: Vec::new(),
             },
+            // blocks: blocks_3d,
+            // hidden_blocks: Vec::new(),
         };
 
         // level.apply_state(engine, state);
@@ -93,7 +100,7 @@ impl Level {
         self.players.iter_mut().find(|p| p.index == index)
     }
 
-    pub fn get_player_by_collider(&self, collider: ColliderHandle) -> Option<&Player> {
+    pub fn get_player_by_collider(&self, collider: Handle<Node>) -> Option<&Player> {
         self.players.iter().find(|p| p.collider == collider)
     }
 
@@ -346,7 +353,7 @@ impl Level {
                     state,
                     current_player,
                 } => {
-                    rg3d::core::futures::executor::block_on(self.spawn_player(
+                    fyrox::core::futures::executor::block_on(self.spawn_player(
                         engine,
                         index,
                         PlayerState {
@@ -432,7 +439,42 @@ impl Level {
                 interface,
             );
         }
+
+        // let scene = &mut engine.scenes[self.scene];
+        // #[cfg(not(feature = "server"))]
+        // for (x, blocks_x) in self.blocks.iter().enumerate() {
+        //     for (y, blocks_y) in blocks_x.iter().enumerate() {
+        //         for (z, &handle) in blocks_y.iter().enumerate() {
+        //             if self.blocks[x][y][z].is_some() {
+        //                 let hidden_pos = self.get_hidden_block_position(x, y, z);
+        //                 if self.blocks[x - 1][y][z].is_some()
+        //                     && self.blocks[x + 1][y][z].is_some()
+        //                     && self.blocks[x][y - 1][z].is_some()
+        //                     && self.blocks[x][y + 1][z].is_some()
+        //                     && self.blocks[x][y][z - 1].is_some()
+        //                     && self.blocks[x][y][z + 1].is_some()
+        //                     && hidden_pos.is_none()
+        //                 {
+        //                     self.hidden_blocks
+        //                         .push(scene.graph.take_reserve_sub_graph(handle));
+        //                 } else if let Some(pos) = hidden_pos {
+        //                     scene
+        //                         .graph
+        //                         .put_sub_graph_back(self.hidden_blocks.remove(pos));
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
     }
+
+    // fn get_hidden_block_position(&self, x: usize, y: usize, z: usize) -> Option<usize> {
+    //     self.hidden_blocks.iter().position(|g| {
+    //         (g.root.1.global_position().x.round() + 50.0) as usize == x
+    //             && (g.root.1.global_position().y.round() + 50.0) as usize == y
+    //             && (g.root.1.global_position().z.round() + 50.0) as usize == z
+    //     })
+    // }
 
     pub async fn spawn_player(
         &mut self,
@@ -480,13 +522,15 @@ impl Level {
         let handle = scene.graph.handle_from_index(index);
 
         if handle.is_some() && scene.graph.is_valid_handle(handle) {
-            if let Some(body) = scene.physics_binder.body_of(handle) {
-                scene.physics.remove_body(body);
-                scene.remove_node(handle);
+            let node = &scene.graph[handle];
+            // self.blocks[(node.global_position().x.round() + 50.0) as usize]
+            //     [(node.global_position().y.round() + 50.0) as usize]
+            //     [(node.global_position().z.round() + 50.0) as usize] = Handle::<Node>::NONE;
 
-                #[cfg(feature = "server")]
-                self.state.destroyed_blocks.push(index);
-            }
+            scene.remove_node(handle);
+
+            #[cfg(feature = "server")]
+            self.state.destroyed_blocks.push(index);
         }
     }
 

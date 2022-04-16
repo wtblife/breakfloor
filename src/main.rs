@@ -1,4 +1,5 @@
 #![cfg_attr(not(feature = "console"), windows_subsystem = "windows")]
+pub mod animation;
 pub mod game;
 pub mod level;
 pub mod network_manager;
@@ -13,9 +14,7 @@ use crate::{
     player_event::PlayerEvent,
 };
 use crossbeam_channel::{Receiver, Sender};
-use laminar::{Config, ErrorKind, Packet, Socket, SocketEvent};
-use player::PlayerState;
-use rg3d::{
+use fyrox::{
     core::{
         algebra::{Isometry3, Translation3, UnitQuaternion, Vector2, Vector3},
         color::Color,
@@ -45,9 +44,14 @@ use rg3d::{
         node::Node,
         transform::TransformBuilder,
     },
-    utils::into_gui_texture,
+    utils::{
+        into_gui_texture,
+        log::{Log, MessageKind},
+    },
     window::{Fullscreen, WindowBuilder},
 };
+use laminar::{Config, ErrorKind, Packet, Socket, SocketEvent};
+use player::PlayerState;
 use serde::Deserialize;
 use std::{
     fmt,
@@ -101,6 +105,8 @@ fn read_settings_from_file<P: AsRef<Path>>(path: P) -> Result<Settings, Box<dyn 
 }
 
 fn main() {
+    Log::set_verbosity(MessageKind::Warning);
+
     const SERVER: bool = cfg!(feature = "server");
     // Our game logic will be updated at 60 Hz rate.
     const TIMESTEP: f32 = 1.0 / 60.0;
@@ -126,7 +132,7 @@ fn main() {
 
     engine
         .renderer
-        .set_quality_settings(&rg3d::renderer::QualitySettings {
+        .set_quality_settings(&fyrox::renderer::QualitySettings {
             use_ssao: false,
             ..Default::default()
         })
@@ -150,7 +156,7 @@ fn main() {
     let mut cursor_in_window = true;
 
     let mut network_manager = NetworkManager::new();
-    let mut game = rg3d::core::futures::executor::block_on(Game::new(&mut engine, settings));
+    let mut game = fyrox::core::futures::executor::block_on(Game::new(&mut engine, settings));
 
     event_loop.run(move |event, _, control_flow| {
         network_manager.handle_events(&mut engine, &mut game);
@@ -171,6 +177,7 @@ fn main() {
                     elapsed_time += TIMESTEP;
 
                     let fps = engine.renderer.get_statistics().frames_per_second;
+
                     #[cfg(not(feature = "server"))]
                     engine.user_interface.send_message(TextMessage::text(
                         interface.fps,
@@ -330,7 +337,7 @@ fn process_input_event(
                             VirtualKeyCode::Space => {
                                 let scene = &mut engine.scenes[level.scene];
                                 if let Some(player) = level.get_player_by_index(player_index) {
-                                    if player.has_ground_contact(&scene.physics) {
+                                    if player.has_ground_contact(scene) {
                                         let action = PlayerEvent::Jump {
                                             index: player_index,
                                         };
@@ -455,7 +462,7 @@ fn create_ui(engine: &mut GameEngine) -> Interface {
     .with_texture(into_gui_texture(
         engine
             .resource_manager
-            .request_texture("data/textures/crosshair.png", None),
+            .request_texture("data/textures/crosshair.png"),
     ))
     .build(ctx);
 

@@ -1,5 +1,5 @@
 use bincode::serialize;
-use rg3d::{
+use fyrox::{
     animation::Animation,
     core::{
         algebra::{Matrix3, Translation3, UnitQuaternion, Vector3},
@@ -8,32 +8,29 @@ use rg3d::{
         math::{ray::Ray, Vector3Ext},
         pool::Handle,
     },
-    engine::resource_manager::{MaterialSearchOptions, ResourceManager},
+    engine::resource_manager::ResourceManager,
     event::ElementState,
     gui::{message::MessageDirection, text::TextMessage},
     material::{Material, PropertyValue},
-    physics3d::{
-        rapier::prelude::{CoefficientCombineRule, ColliderBuilder, RigidBody, RigidBodyBuilder},
-        ColliderHandle, RayCastOptions, RigidBodyHandle,
-    },
     resource::texture::TextureWrapMode,
     scene::{
         base::BaseBuilder,
         camera::{CameraBuilder, Exposure, SkyBox, SkyBoxBuilder},
-        graph::Graph,
+        collider::{ColliderBuilder, ColliderShape},
+        graph::{
+            physics::{CoefficientCombineRule, RayCastOptions},
+            Graph,
+        },
         mesh::{
             surface::{SurfaceBuilder, SurfaceData},
             MeshBuilder, RenderPath,
         },
         node::Node,
         particle_system::ParticleSystemBuilder,
-        physics::Physics,
+        rigidbody::{RigidBody, RigidBodyBuilder},
+        sound::{listener::ListenerBuilder, SoundBufferResource, SoundBuilder, Status},
         transform::TransformBuilder,
         Scene,
-    },
-    sound::{
-        buffer::SoundBufferResource,
-        source::{generic::GenericSourceBuilder, spatial::SpatialSourceBuilder, Status},
     },
 };
 use std::{
@@ -43,6 +40,7 @@ use std::{
 };
 
 use crate::{
+    animation::{PlayerAnimationMachine, PlayerAnimationMachineInput},
     level::Level,
     network_manager::{self, NetworkManager, NetworkMessage},
     player_event::PlayerEvent,
@@ -52,6 +50,7 @@ use crate::{
 const MOVEMENT_SPEED: f32 = 1.5;
 const GRAVITY_SCALE: f32 = 0.6;
 const JET_SPEED: f32 = 0.0155;
+const JUMP_SCALAR: f32 = 0.32;
 const MAX_FUEL: u32 = 225;
 pub const SYNC_FREQUENCY: u32 = 3;
 
@@ -75,12 +74,11 @@ pub struct PlayerController {
 }
 
 pub struct Player {
-    pivot: Handle<Node>,
     barrel: Handle<Node>,
     spine: Handle<Node>,
     camera: Handle<Node>,
-    rigid_body: RigidBodyHandle,
-    pub collider: ColliderHandle,
+    rigid_body: Handle<Node>,
+    pub collider: Handle<Node>,
     shot_timer: f32,
     recoil_offset: Vector3<f32>,
     recoil_target_offset: Vector3<f32>,
@@ -88,11 +86,12 @@ pub struct Player {
     pub controller: PlayerController,
     third_person_model: Handle<Node>,
     first_person_model: Handle<Node>,
-    firing_sound_buffer: SoundBufferResource,
+    firing_sound_buffer: Option<SoundBufferResource>,
     pub flight_fuel: u32,
     current_player: bool,
     pub ammo: u32,
-    animation: Handle<Animation>,
+    first_person_animation_machine: PlayerAnimationMachine,
+    third_person_animation_machine: PlayerAnimationMachine,
 }
 
 #[derive(Default, Debug)]
@@ -132,41 +131,32 @@ impl Player {
     ) -> Self {
         // TODO: Resources should only need to be loaded once and shared among players
         let first_person_resource = resource_manager
-            .request_model(
-                "data/models/walking_1st.fbx",
-                MaterialSearchOptions::MaterialsDirectory(PathBuf::from("data/textures")),
-            )
+            .request_model("data/models/walking_1st.fbx")
             .await
             .unwrap();
 
         let third_person_resource = resource_manager
-            .request_model(
-                "data/models/idle.fbx",
-                MaterialSearchOptions::MaterialsDirectory(PathBuf::from("data/textures")),
-            )
+            .request_model("data/models/idle.fbx")
             .await
             .unwrap();
 
         let first_person_model = first_person_resource.instantiate(scene).root;
         let third_person_model = third_person_resource.instantiate(scene).root;
 
-        let animation_resource = resource_manager
-            .request_model(
-                "data/models/walking_1st.fbx",
-                MaterialSearchOptions::MaterialsDirectory(PathBuf::from("data/textures")),
-            )
-            .await
-            .unwrap();
+        // let animation_resource = resource_manager
+        //     .request_model("data/models/walking_1st.fbx")
+        //     .await
+        //     .unwrap();
 
-        let player_model = match current_player {
-            true => first_person_model,
-            false => third_person_model,
-        };
+        // let player_model = match current_player {
+        //     true => first_person_model,
+        //     false => third_person_model,
+        // };
 
-        let animation = *animation_resource
-            .retarget_animations(player_model, scene)
-            .get(0)
-            .unwrap();
+        // let animation = *animation_resource
+        //     .retarget_animations(player_model, scene)
+        //     .get(0)
+        //     .unwrap();
         // println!("animations: {:?}", animations.len());
 
         let camera_pos = Vector3::new(0.0, 0.37, 0.00);
@@ -197,66 +187,120 @@ impl Player {
         // TODO: Need separate pivots for third or first person to make shots appear from correct position in third person
         let barrel = scene.graph.find_by_name(first_person_model, "gun_LOD0");
 
-        let camera = CameraBuilder::new(
-            BaseBuilder::new()
-                .with_children(&[first_person_model])
-                .with_local_transform(
-                    TransformBuilder::new()
-                        .with_local_position(camera_pos)
-                        .build(),
-                ),
-        )
-        .enabled(current_player)
-        .with_skybox(create_skybox(resource_manager.clone()).await)
-        .build(&mut scene.graph);
+        let camera = if current_player {
+            CameraBuilder::new(
+                BaseBuilder::new()
+                    .with_children(&[
+                        first_person_model,
+                        ListenerBuilder::new(BaseBuilder::new()).build(&mut scene.graph),
+                    ])
+                    .with_local_transform(
+                        TransformBuilder::new()
+                            .with_local_position(camera_pos)
+                            .build(),
+                    ),
+            )
+            .enabled(current_player)
+            .with_skybox(create_skybox(resource_manager.clone()).await)
+            .build(&mut scene.graph)
+        } else {
+            CameraBuilder::new(
+                BaseBuilder::new()
+                    .with_children(&[first_person_model])
+                    .with_local_transform(
+                        TransformBuilder::new()
+                            .with_local_position(camera_pos)
+                            .build(),
+                    ),
+            )
+            .enabled(current_player)
+            .with_skybox(create_skybox(resource_manager.clone()).await)
+            .build(&mut scene.graph)
+        };
 
         scene.graph[camera]
             .as_camera_mut()
             .set_exposure(Exposure::Manual(std::f32::consts::E));
 
-        let pivot = BaseBuilder::new()
-            .with_children(&[camera, third_person_model])
-            .with_tag("player".to_string()) // TODO: Use collider groups instead
-            .build(&mut scene.graph);
+        // let pivot = BaseBuilder::new()
+        //     .with_children(&[camera, third_person_model])
+        //     .with_tag("player".to_string()) // TODO: Use collider groups instead
+        //     .build(&mut scene.graph);
 
         // Create rigid body, it will be used for interaction with the world.
-        let rigid_body = scene.physics.add_body(
-            RigidBodyBuilder::new_dynamic()
-                .lock_rotations() // We don't want a bot to tilt.
-                .translation(Vector3::new(
-                    state.position.x,
-                    state.position.y,
-                    state.position.z,
-                )) // Set desired position.
-                .linvel(Vector3::new(
-                    state.velocity.x,
-                    state.velocity.y,
-                    state.velocity.z,
-                ))
-                .gravity_scale(GRAVITY_SCALE)
-                .build(),
-        );
+        // let rigid_body =
+        //     RigidBodyBuilder::new_dynamic()
+        //         .lock_rotations() // We don't want a bot to tilt.
+        //         .translation(Vector3::new(
+        //             state.position.x,
+        //             state.position.y,
+        //             state.position.z,
+        //         )) // Set desired position.
+        //         .linvel(Vector3::new(
+        //             state.velocity.x,
+        //             state.velocity.y,
+        //             state.velocity.z,
+        //         ))
+        //         .gravity_scale(GRAVITY_SCALE)
+        //         .build(),
+        // );
 
         // Add capsule collider for the rigid body.
-        let collider = scene.physics.add_collider(
-            ColliderBuilder::capsule_y(0.25, 0.20)
-                .friction_combine_rule(CoefficientCombineRule::Min)
-                .friction(0.0)
-                .build(),
-            &rigid_body,
+        // let collider = scene.physics.add_collider(
+        //     ColliderBuilder::capsule_y(0.25, 0.20)
+        //         .friction_combine_rule(CoefficientCombineRule::Min)
+        //         .friction(0.0)
+        //         .build(),
+        //     &rigid_body,
+        // );
+
+        let collider = ColliderBuilder::new(BaseBuilder::new())
+            .with_shape(ColliderShape::capsule_y(0.25, 0.20))
+            .with_friction_combine_rule(CoefficientCombineRule::Min)
+            .with_friction(0.0)
+            .build(&mut scene.graph);
+
+        let rigid_body = RigidBodyBuilder::new(
+            BaseBuilder::new()
+                .with_tag("player".to_string())
+                .with_local_transform(
+                    TransformBuilder::new()
+                        .with_local_position(Vector3::new(
+                            state.position.x,
+                            state.position.y,
+                            state.position.z,
+                        ))
+                        .build(),
+                )
+                .with_children(&[camera, collider, third_person_model]),
+        )
+        .with_mass(0.0)
+        .with_lin_vel(Vector3::new(
+            state.velocity.x,
+            state.velocity.y,
+            state.velocity.z,
+        ))
+        .with_gravity_scale(GRAVITY_SCALE)
+        // We don't want the player to tilt.
+        .with_locked_rotations(true)
+        // We don't want the rigid body to sleep (be excluded from simulation)
+        .with_can_sleep(false)
+        .build(&mut scene.graph);
+
+        let firing_sound_buffer = Some(
+            resource_manager
+                .request_sound_buffer("data/sounds/laser4.ogg")
+                .await
+                .unwrap(),
         );
 
-        // Bind pivot with rigid body. Scene will automatically sync transform of the pivot
-        // with the transform of the rigid body.
-        scene.physics_binder.bind(pivot, rigid_body);
+        let first_person_animation_machine =
+            PlayerAnimationMachine::new(scene, first_person_model, resource_manager.clone()).await;
 
-        let firing_sound_buffer = resource_manager
-            .request_sound_buffer("data/sounds/laser4.ogg", false)
-            .await
-            .unwrap();
+        let third_person_animation_machine =
+            PlayerAnimationMachine::new(scene, third_person_model, resource_manager.clone()).await;
 
         Self {
-            pivot,
             barrel,
             spine,
             camera: camera,
@@ -278,11 +322,17 @@ impl Player {
             flight_fuel: MAX_FUEL,
             current_player,
             ammo: 20,
-            animation,
+            first_person_animation_machine,
+            third_person_animation_machine,
         }
     }
 
     pub fn set_camera(&self, scene: &mut Scene, enabled: bool) {
+        if enabled {
+            let listener = ListenerBuilder::new(BaseBuilder::new()).build(&mut scene.graph);
+            scene.graph.link_nodes(listener, self.camera);
+        }
+
         scene.graph[self.camera]
             .as_camera_mut()
             .set_enabled(enabled);
@@ -304,76 +354,55 @@ impl Player {
     ) {
         let scene = &mut engine.scenes[scene];
 
-        scene
-            .animations
-            .get_mut(self.animation)
-            .get_pose()
-            .apply(&mut scene.graph);
-
         self.shot_timer = (self.shot_timer - dt).max(0.0);
 
-        // `follow` method defined in Vector3Ext trait and it just increases or
-        // decreases vector's value in order to "follow" the target value with
-        // given speed.
-        // self.recoil_offset.follow(&self.recoil_target_offset, 0.5);
+        let has_ground_contact = self.has_ground_contact(scene);
 
-        // Apply offset to weapon's model.
-        // scene.graph[self.weapon_pivot]
-        //     .local_transform_mut()
-        //     .set_position(self.recoil_offset);
-
-        // Check if we've reached target recoil offset.
-        // if self
-        //     .recoil_offset
-        //     .metric_distance(&self.recoil_target_offset)
-        //     < 0.001
-        // {
-        //     // And if so, reset offset to zero to return weapon at
-        //     // its default position.
-        //     self.recoil_target_offset = Default::default();
-        // }
-
-        let has_ground_contact = self.has_ground_contact(&scene.physics);
+        let mut animation_input: PlayerAnimationMachineInput = PlayerAnimationMachineInput {
+            on_ground: has_ground_contact,
+            walk_forward: self.controller.move_forward,
+            ..Default::default()
+        };
 
         // Borrow rigid body in the physics.
-        let body = scene.physics.bodies.get_mut(&self.rigid_body).unwrap();
+        let body = scene.graph[self.rigid_body].as_rigid_body_mut();
 
         #[cfg(not(feature = "server"))]
         self.interpolate_state(body, dt);
 
-        let pivot = &mut scene.graph[self.pivot];
-
         // Keep only vertical velocity, and drop horizontal.
-        let mut velocity = Vector3::new(0.0, body.linvel().y, 0.0);
+        let mut velocity = Vector3::new(0.0, body.lin_vel().y, 0.0);
 
         // TODO: Moving diagonally should move at correct speed
 
         // Change the velocity depending on the keys pressed.
         if self.controller.move_forward {
             // If we moving forward then add "look" vector of the pivot.
-            velocity += pivot.look_vector() * MOVEMENT_SPEED;
+            velocity += body.look_vector().normalize() * MOVEMENT_SPEED;
         }
         if self.controller.move_backward {
             // If we moving backward then subtract "look" vector of the pivot.
-            velocity -= pivot.look_vector() * MOVEMENT_SPEED;
+            velocity -= body.look_vector().normalize() * MOVEMENT_SPEED;
         }
         if self.controller.move_left {
             // If we moving left then add "side" vector of the pivot.
-            velocity += pivot.side_vector() * MOVEMENT_SPEED;
+            velocity += body.side_vector().normalize() * MOVEMENT_SPEED;
         }
         if self.controller.move_right {
             // If we moving right then subtract "side" vector of the pivot.
-            velocity -= pivot.side_vector() * MOVEMENT_SPEED;
+            velocity -= body.side_vector().normalize() * MOVEMENT_SPEED;
         }
 
         // Finally new linear velocity.
-        body.set_linvel(velocity, true);
+        body.set_lin_vel(velocity);
 
         if self.controller.fly && self.has_fuel() {
-            if body.linvel().y < 3.0 {
-                body.apply_impulse(pivot.up_vector() * JET_SPEED, true);
+            if body.lin_vel().y < 3.0 {
+                body.apply_impulse(body.up_vector().normalize() * JET_SPEED);
                 self.flight_fuel = (self.flight_fuel - 3).clamp(0, MAX_FUEL);
             }
+
+            animation_input.fly = true;
         }
 
         self.flight_fuel = (self.flight_fuel + 1).clamp(0, MAX_FUEL);
@@ -389,7 +418,19 @@ impl Player {
             #[cfg(feature = "server")]
             network_manager.send_to_all_reliably(&message);
 
-            body.apply_impulse(pivot.up_vector() * 0.32, true);
+            body.apply_impulse(body.up_vector().normalize() * JUMP_SCALAR);
+
+            animation_input.jump = true;
+            scene
+                .animations
+                .get_mut(self.first_person_animation_machine.jump_animation)
+                .set_enabled(true)
+                .rewind();
+            scene
+                .animations
+                .get_mut(self.third_person_animation_machine.jump_animation)
+                .set_enabled(true)
+                .rewind();
         }
 
         self.controller.jump = false;
@@ -433,11 +474,15 @@ impl Player {
 
         // Change the rotation of the rigid body according to current yaw. These lines responsible for
         // left-right rotation.
-        let mut position = *body.position();
-        position.rotation =
-            UnitQuaternion::from_axis_angle(&Vector3::y_axis(), self.controller.yaw.to_radians());
+        // let mut position = *body.position();
+        // position.rotation =
+        //     UnitQuaternion::from_axis_angle(&Vector3::y_axis(), self.controller.yaw.to_radians());
 
-        body.set_position(position, true);
+        body.local_transform_mut()
+            .set_rotation(UnitQuaternion::from_axis_angle(
+                &Vector3::y_axis(),
+                self.controller.yaw.to_radians(),
+            ));
 
         // Set pitch for the camera. These lines responsible for up-down camera rotation.
         scene.graph[self.camera].local_transform_mut().set_rotation(
@@ -449,25 +494,27 @@ impl Player {
         );
 
         if self.controller.shoot {
+            // TODO: Ammo check here
             self.shoot_weapon(scene, resource_manager, network_manager, &event_sender);
+            animation_input.shoot = true;
         }
 
         // Update listener position if camera is active
-        let camera = &scene.graph[self.camera];
-        if camera.as_camera().is_enabled() {
-            let mut ctx = scene.sound_context.state();
-            let listener = ctx.listener_mut();
-            let listener_basis = Matrix3::from_columns(&[
-                camera.side_vector(),
-                camera.up_vector(),
-                -camera.look_vector(),
-            ]);
-            listener.set_position(camera.global_position());
-            listener.set_basis(listener_basis);
-        }
+        // let camera = &scene.graph[self.camera];
+        // if camera.as_camera().is_enabled() {
+        //     let mut ctx = scene.graph.sound_context.state();
+        //     let listener = ctx.listener_mut();
+        //     let listener_basis = Matrix3::from_columns(&[
+        //         camera.side_vector(),
+        //         camera.up_vector(),
+        //         -camera.look_vector(),
+        //     ]);
+        //     listener.set_position(camera.global_position());
+        //     listener.set_basis(listener_basis);
+        // }
 
         #[cfg(feature = "server")]
-        if position.translation.vector.y < -12.0 {
+        if scene.graph[self.rigid_body].global_position().y < -12.0 {
             event_sender
                 .send(PlayerEvent::KillPlayerFromIntersection {
                     collider: self.collider,
@@ -482,6 +529,11 @@ impl Player {
                 format!("{} / {}", self.flight_fuel, MAX_FUEL),
             ));
         }
+
+        self.first_person_animation_machine
+            .update(scene, dt, animation_input);
+        self.third_person_animation_machine
+            .update(scene, dt, animation_input);
     }
 
     fn can_jump(&self) -> bool {
@@ -497,43 +549,22 @@ impl Player {
         //         .drain(0..length - buffer_length + 1);
         // }
         if let Some(new_state) = &self.controller.new_states.first_mut() {
-            // let minimum_distance = self
-            //     .controller
-            //     .previous_states
-            //     .iter_mut()
-            //     .enumerate()
-            //     .map(|(index, previous_state)| {
-            //         (
-            //             index,
-            //             (new_state.position - previous_state.position).magnitude() as f32,
-            //         )
-            //     })
-            //     .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-            // println!("minimum distance: {:?}", minimum_distance);
-            // println!("length: {}", self.controller.previous_states.len());
-            // body.set_position(
-            //     Isometry::from_parts(
-            //         Translation3::from(new_state.position),
-            //         (*body.position()).rotation,
-            //     ),
-            //     true,
-            // );
             // self.controller.new_state = None;
             if let Some(previous_state) = self.controller.previous_states.first_mut() {
                 // Only sync vertical velocity
-                let mut velocity_diff: Vector3<f32> =
-                    Vector3::new(0.0, new_state.velocity.y - previous_state.velocity.y, 0.0);
-                let velocity_diff_mag = velocity_diff.magnitude();
+                // let mut velocity_diff: Vector3<f32> =
+                //     Vector3::new(0.0, new_state.velocity.y - previous_state.velocity.y, 0.0);
+                // let velocity_diff_mag = velocity_diff.magnitude();
 
-                if velocity_diff_mag > 0.0 {
-                    let max_change = 9.8 * GRAVITY_SCALE * dt / 6.0 as f32;
-                    let velocity_change = f32::min(velocity_diff_mag, max_change);
-                    velocity_diff *= velocity_change / velocity_diff_mag;
-                    previous_state.velocity += velocity_diff;
+                // if velocity_diff_mag > 0.0 {
+                //     let max_change = 9.8 * GRAVITY_SCALE * dt / 6.0 as f32;
+                //     let velocity_change = f32::min(velocity_diff_mag, max_change);
+                //     velocity_diff *= velocity_change / velocity_diff_mag;
+                //     previous_state.velocity += velocity_diff;
 
-                    let new_velocity = *body.linvel() + velocity_diff;
-                    body.set_linvel(new_velocity, true);
-                }
+                //     let new_velocity = *body.lin_vel() + velocity_diff;
+                //     body.set_lin_vel(new_velocity, true);
+                // }
 
                 // Sync position
                 let mut pos_diff: Vector3<f32> = new_state.position - previous_state.position;
@@ -558,8 +589,8 @@ impl Player {
                     let move_dist = f32::min(pos_diff_mag, max_move);
                     pos_diff *= move_dist / pos_diff_mag;
 
-                    let new_pos = Translation3::from(pos_diff) * (*body.position());
-                    body.set_position(new_pos, true);
+                    // let new_pos = Translation3::from(pos_diff) * (*body.global_position());
+                    body.local_transform_mut().offset(pos_diff);
 
                     for previous_state in self.controller.previous_states.iter_mut() {
                         previous_state.position += pos_diff;
@@ -589,21 +620,33 @@ impl Player {
     }
 
     fn play_shoot_sound(&self, scene: &mut Scene) {
-        let mut ctx = scene.sound_context.state();
-        ctx.add_source(
-            SpatialSourceBuilder::new(
-                GenericSourceBuilder::new()
-                    .with_buffer(self.firing_sound_buffer.clone().into())
-                    .with_play_once(true)
-                    // Every sound source must be explicity set to Playing status, otherwise it will be stopped.
-                    .with_status(Status::Playing)
-                    .build()
-                    .unwrap(),
-            )
-            .with_position(scene.graph[self.barrel].global_position())
-            // .with_rolloff_factor(1.5)
-            .build_source(),
-        );
+        let source = SoundBuilder::new(
+            BaseBuilder::new().with_local_transform(
+                TransformBuilder::new()
+                    .with_local_position(scene.graph[self.barrel].global_position())
+                    .build(),
+            ),
+        )
+        .with_play_once(true)
+        .with_buffer(self.firing_sound_buffer.clone())
+        .with_radius(1.0)
+        .with_status(Status::Playing)
+        .build(&mut scene.graph);
+        // let mut ctx = scene.sound_context.state();
+        // ctx.add_source(
+        //     SpatialSourceBuilder::new(
+        //         GenericSourceBuilder::new()
+        //             .with_buffer(self.firing_sound_buffer.clone().into())
+        //             .with_play_once(true)
+        //             // Every sound source must be explicity set to Playing status, otherwise it will be stopped.
+        //             .with_status(Status::Playing)
+        //             .build()
+        //             .unwrap(),
+        //     )
+        //     .with_position(scene.graph[self.barrel].global_position())
+        //     // .with_rolloff_factor(1.5)
+        //     .build_source(),
+        // );
     }
 
     fn shoot_weapon(
@@ -626,10 +669,13 @@ impl Player {
             // "look" vector of the camera.
             let ray = Ray::new(
                 scene.graph[self.camera].global_position(),
-                scene.graph[self.camera].look_vector().scale(1000.0),
+                scene.graph[self.camera]
+                    .look_vector()
+                    .normalize()
+                    .scale(1000.0),
             );
 
-            scene.physics.cast_ray(
+            scene.graph.physics.cast_ray(
                 RayCastOptions {
                     ray_origin: ray.origin.into(),
                     ray_direction: ray.dir,
@@ -644,13 +690,9 @@ impl Player {
             let trail_length = if let Some(intersection) =
                 intersections.iter().find(|i| i.collider != self.collider)
             {
-                let body = scene
-                    .physics
-                    .collider_parent(&intersection.collider)
-                    .unwrap();
-
-                if let Some(node_handle) = scene.physics_binder.node_of(*body) {
-                    let node = &mut scene.graph[node_handle];
+                let node_handle = scene.graph[intersection.collider].parent();
+                let node = &mut scene.graph[node_handle];
+                if node.is_rigid_body() {
                     let tag = node.tag();
 
                     #[cfg(feature = "server")]
@@ -739,15 +781,15 @@ impl Player {
     }
 
     pub fn get_velocity(&self, scene: &Scene) -> Vector3<f32> {
-        let body = scene.physics.bodies.get(&self.rigid_body).unwrap();
+        let body = scene.graph[self.rigid_body].as_rigid_body();
 
-        *body.linvel()
+        body.lin_vel()
     }
 
     pub fn get_position(&self, scene: &Scene) -> Vector3<f32> {
-        let body = scene.physics.bodies.get(&self.rigid_body).unwrap();
+        let body = &scene.graph[self.rigid_body];
 
-        body.position().translation.vector
+        body.global_position()
     }
 
     pub fn get_yaw(&self) -> f32 {
@@ -759,13 +801,13 @@ impl Player {
     }
 
     pub fn clean_up(&mut self, scene: &mut Scene) {
-        scene.physics.remove_body(&self.rigid_body);
-        scene.remove_node(self.pivot);
+        scene.remove_node(self.rigid_body);
     }
 
-    pub fn has_ground_contact(&self, physics: &Physics) -> bool {
-        if let Some(body) = physics.bodies.get(&self.rigid_body) {
-            for contact in physics.narrow_phase.contacts_with(body.colliders()[0]) {
+    pub fn has_ground_contact(&self, scene: &Scene) -> bool {
+        let graph = &scene.graph;
+        if let Some(Node::Collider(collider)) = graph.try_get(self.collider) {
+            for contact in collider.contacts(&graph.physics) {
                 for manifold in contact.manifolds.iter() {
                     if manifold.local_n1.y.abs() > 0.7 || manifold.local_n2.y.abs() > 0.7 {
                         return true;
@@ -779,13 +821,13 @@ impl Player {
 
 async fn create_skybox(resource_manager: ResourceManager) -> SkyBox {
     // Load skybox textures in parallel.
-    let (front, back, left, right, top, bottom) = rg3d::core::futures::join!(
-        resource_manager.request_texture("data/textures/skybox/front.png", None),
-        resource_manager.request_texture("data/textures/skybox/back.png", None),
-        resource_manager.request_texture("data/textures/skybox/left.png", None),
-        resource_manager.request_texture("data/textures/skybox/right.png", None),
-        resource_manager.request_texture("data/textures/skybox/top.png", None),
-        resource_manager.request_texture("data/textures/skybox/down.png", None)
+    let (front, back, left, right, top, bottom) = fyrox::core::futures::join!(
+        resource_manager.request_texture("data/textures/skybox/front.png"),
+        resource_manager.request_texture("data/textures/skybox/back.png"),
+        resource_manager.request_texture("data/textures/skybox/left.png"),
+        resource_manager.request_texture("data/textures/skybox/right.png"),
+        resource_manager.request_texture("data/textures/skybox/top.png"),
+        resource_manager.request_texture("data/textures/skybox/down.png")
     );
 
     // Unwrap everything.
@@ -871,7 +913,7 @@ fn create_shot_trail(
 ) {
     use std::sync::Arc;
 
-    use rg3d::core::{parking_lot::Mutex, sstorage::ImmutableString};
+    use fyrox::core::{parking_lot::Mutex, sstorage::ImmutableString};
 
     let transform = TransformBuilder::new()
         .with_local_position(origin)

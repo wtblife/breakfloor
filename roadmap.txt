@@ -3,6 +3,8 @@
     - Reload
 - Hitboxes
     - Need to match animations and model closely with different body/head sections
+- Optimize blocks
+    - Disable hidden block nodes (including physics)
 - Teams
     - can only damage other team
     - something to differentiate other team (different colored armor/laser?)
@@ -12,11 +14,10 @@
     - Muzzle flash
     - Laser beam?
 - Spawn locations which can be added in editor
-- Server config
+- Console commands for updating server
     - Tick rate
     - Sync frequency
     - Level
-- Ability to change level in console
 - Chat
 - Lag compensation for shots fired
 - UI improvements
@@ -28,3 +29,4 @@
 - More weapons
     - Grenades
 - Melee attack/bunt
+- Add lighting?

@@ -286,9 +286,9 @@ impl NetworkManager {
 
                                                 // Send spawn player event to all other players
                                                 let position = SerializableVector {
-                                                    x: 0.0,
-                                                    y: 2.0,
-                                                    z: 5.0 * (-1.0f32).powi(index as i32),
+                                                    x: 5.0 * (-1.0f32).powi(index as i32),
+                                                    y: 3.0,
+                                                    z: 1.0,
                                                 };
                                                 let event = PlayerEvent::SpawnPlayer {
                                                     index: index,
